@@ -12,6 +12,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { HIDDEN_ARG, canOpenAtLogin, closeAction, createPreferences, startsHidden } from "../lib/background.mjs";
 import { createCaptureStore } from "../lib/capture-store.mjs";
+import { CONSENT_KINDS, allowed, createConsents, maySync, needsChoice, standingAnswer } from "../lib/consent.mjs";
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
@@ -57,6 +58,8 @@ const lastSent = new Map();
 let uploadNotice = null;
 let uploading = false;
 let uploadAgain = false;
+/** The member's choices about each retailer (lib/consent.mjs). @type {ReturnType<typeof createConsents> | null} */
+let consents = null;
 /** What each sync has already read. @type {ReturnType<typeof createSyncStates> | null} */
 let syncStates = null;
 /** The syncs running now, and what each is doing. @type {Map<string, string>} */
@@ -108,6 +111,7 @@ async function start() {
     // The token is sealed the same way, beside the captures rather than among them.
     credentials = createCredentialStore({ dir: path.join(dir, "..", "account"), ...sealing });
     syncStates = createSyncStates({ dir: path.join(dir, "..", "sync"), ...sealing });
+    consents = createConsents({ dir: path.join(dir, "..", "consent"), ...sealing });
   }
 
   ipcMain.handle("desktop:status", (event) => (fromHome(event) ? status() : null));
@@ -178,7 +182,21 @@ async function start() {
       sync(code) {
         const retailer = retailerByCode(code);
         if (!retailer || !retailer.syncs || syncing.has(code)) return false;
+        // Not before the member has chosen, where the retailer's terms make it their choice.
+        if (!maySyncNow(retailer)) return false;
         void runSync(retailer, { visible: true });
+        return true;
+      },
+      // The member's answer, from the Retail sync page, about one thing at one retailer.
+      consent(code, kind, answer) {
+        const retailer = retailerByCode(code);
+        if (!retailer || !consents || !CONSENT_KINDS.includes(/** @type {any} */ (kind)) || typeof answer !== "boolean") return false;
+        const which = /** @type {import("../lib/consent.mjs").ConsentKind} */ (kind);
+        // Nothing to answer where the terms allow it: recording a yes there would read as a choice
+        // nobody was asked to make.
+        if (!needsChoice(retailer, which)) return false;
+        consents.set(retailer, which, answer);
+        changed();
         return true;
       },
     },
@@ -321,10 +339,43 @@ function tellAboutBackground() {
   }).show();
 }
 
+/**
+ * Whether the member has agreed to this at this retailer, where its terms make it theirs to agree
+ * to (lib/consent.mjs). The one exception is the development smoke run, which saves one page of
+ * a local file and quits.
+ * @param {import("../lib/retailers.mjs").Retailer} retailer
+ * @param {import("../lib/consent.mjs").ConsentKind} kind
+ */
+const mayDo = (retailer, kind) => Boolean(smokeFixture) || allowed(retailer, kind, consents?.get(retailer.code));
+/** @param {import("../lib/retailers.mjs").Retailer} retailer */
+const maySyncNow = (retailer) => Boolean(smokeFixture) || maySync(retailer, consents?.get(retailer.code));
+
+/**
+ * Keeps a page, if the member has agreed to its being kept. Every page the app saves goes through
+ * here, whoever opened it: the member, or a sync.
+ * @param {import("../lib/retailers.mjs").Retailer} retailer
+ * @param {string} kind
+ * @param {string} payload
+ * @returns {{ added: boolean, kept: boolean }}  `kept` false: not saved, because the member has not chosen to.
+ */
+function keep(retailer, kind, payload) {
+  if (!store) return { added: false, kept: false };
+  if (!mayDo(retailer, "saving")) {
+    tell(retailer.code, `Not saved. Choose whether to save ${retailer.name}'s pages in Settings → Retail sync.`);
+    return { added: false, kept: false };
+  }
+  const { added } = store.add({ site: site.origin, retailer: retailer.code, kind, payload });
+  if (added) void upload();
+  return { added, kept: true };
+}
+
 function runScheduled() {
   if (!syncStates) return;
   for (const retailer of RETAILERS) {
     if (!retailer.syncs || syncing.has(retailer.code)) continue;
+    // A schedule waits for the member's choice, and stops when the choice is withdrawn or the
+    // retailer's terms have changed since it was made.
+    if (!maySyncNow(retailer)) continue;
     if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now())) {
       void runSync(retailer, { visible: false });
     }
@@ -504,6 +555,8 @@ const pageData = (win, retailer) =>
  */
 async function runSync(retailer, { visible }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
+  // Every way a sync starts comes through here, so this is the gate that cannot be walked round.
+  if (!maySyncNow(retailer)) return;
   const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, nextPageInPlace } = retailer;
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
@@ -704,8 +757,7 @@ async function runSync(retailer, { visible }) {
         if (!navigated) {
           const payload = stripHtml(moved);
           if (payload && Buffer.byteLength(payload) <= MAX_CAPTURE_BYTES) {
-            const { added } = store.add({ site: site.origin, retailer: retailer.code, kind: listKind, payload });
-            if (added) void upload();
+            keep(retailer, listKind, payload);
           }
         }
         list = moved;
@@ -885,8 +937,36 @@ function status() {
         lastSentAt: lastSent.get(r.code)?.at ?? null,
         lastSent: lastSent.has(r.code) ? sentSummary(/** @type {import("../lib/uploader.mjs").SentTally} */ (lastSent.get(r.code))) : null,
         ...syncStatus(r.code),
+        ...termsStatus(r),
       };
     }),
+  };
+}
+
+/**
+ * What a retailer's terms say, and what the member has chosen about them. The words are the
+ * retailer's, quoted; the page shows them as given.
+ * @param {import("../lib/retailers.mjs").Retailer} retailer
+ */
+function termsStatus(retailer) {
+  const choices = consents?.get(retailer.code);
+  /** @param {import("../lib/consent.mjs").ConsentKind} kind */
+  const about = (kind) => ({
+    // Whether this is the member's to choose, and their standing answer: null is "not asked, or
+    // asked about terms that have since changed", which is not a no.
+    needsChoice: needsChoice(retailer, kind),
+    answer: standingAnswer(retailer, kind, choices),
+    answeredAt: standingAnswer(retailer, kind, choices) === null ? null : (choices?.[kind]?.at ?? null),
+  });
+  return {
+    terms: {
+      url: retailer.terms.url,
+      updated: retailer.terms.updated,
+      quotes: retailer.terms.quotes,
+      withinTermsBecause: retailer.terms.withinTermsBecause ?? null,
+    },
+    saving: about("saving"),
+    automation: about("automation"),
   };
 }
 
@@ -900,11 +980,18 @@ function syncStatus(code) {
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
-    nextSyncAt: state ? nextScheduledRunAt(state) : null,
+    nextSyncAt: state && scheduleAllowed(code) ? nextScheduledRunAt(state) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // store turned away. Saying "daily" then would promise a run that will not happen.
-    scheduled: Boolean(state?.lastFinishedAt) && !state?.refusedAt,
+    // Nor is it promised while the member's choice is missing or withdrawn.
+    scheduled: Boolean(state?.lastFinishedAt) && !state?.refusedAt && scheduleAllowed(code),
   };
+}
+
+/** @param {string} code */
+function scheduleAllowed(code) {
+  const retailer = retailerByCode(code);
+  return Boolean(retailer) && maySyncNow(/** @type {import("../lib/retailers.mjs").Retailer} */ (retailer));
 }
 
 /** @param {string} code @param {string | null} notice */
@@ -1124,10 +1211,10 @@ function readResponses(retailer, win) {
           tell(retailer.code, `That page is ${(bytes / 1024 / 1024).toFixed(1)} MB, more than SageFin accepts, so it was not saved.`);
           return;
         }
-        const { added } = store.add({ site: site.origin, retailer: retailer.code, kind, payload });
+        const { added, kept } = keep(retailer, kind, payload);
+        if (!kept) return;
         win.setTitle(windowTitle(retailer, win.webContents.getURL()));
         tell(retailer.code, added ? "Saved this page." : "This page was already saved.");
-        if (added) void upload();
       })
       .catch((/** @type {unknown} */ error) => {
         // The body was gone by the time it was asked for. The page still has it; a reload of the
@@ -1180,10 +1267,10 @@ async function readPage(retailer, win) {
     return;
   }
 
-  const { added } = store.add({ site: site.origin, retailer: retailer.code, kind, payload });
+  const { added, kept } = keep(retailer, kind, payload);
+  if (!kept) return;
   win.setTitle(windowTitle(retailer, win.webContents.getURL()));
   tell(retailer.code, added ? "Saved this page." : "This page was already saved.");
-  if (added) void upload();
 
   if (smokeFixture) {
     console.log(`smoke: saved ${kind}, ${store.list().length} capture(s)`);
