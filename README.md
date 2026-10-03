@@ -171,6 +171,17 @@ Walmart and Amazon are the retailers the app supports today.
   time and slowly. Where a list has no address for its later pages it presses the list's own Next
   button: Purchase history's at Walmart, the payments list's at Amazon. It never signs in, fills in a form, changes anything in
   the account, or composes a request the retailer's page would not make itself.
+- **A web page can ask it to sync, and that is all a page can ask.** SageFin's site, in an
+  ordinary browser, has a Sync now button that opens the app with a link:
+  `sagefin-desktop://sync?retailer=walmart`. Any page on the web can send the same link, so the app
+  never takes one as proof that you asked (`lib/sync-link.mjs`):
+  - the link carries a retailer's code and nothing else. Nothing in it can point the app at a
+    site, hand it a token or name an address to load;
+  - it always brings the app's window forward, so you see that something asked;
+  - it starts a sync only for a retailer you have already synced yourself in this copy of the app,
+    in a window you can see, never while one is running, never after the retailer turned a run
+    away, and at most once every fifteen minutes;
+  - for anything else it shows the app and does nothing more.
 - **It does not disguise itself.** The user agent is Electron's own
   (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends
   `Agent/SageFinDesktop`, which Amazon's terms ask of software acting by itself.
@@ -245,6 +256,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
+| `lib/sync-link.mjs` | The `sagefin-desktop://` link: what one may carry, and what the app will do because of one |
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
