@@ -14,7 +14,7 @@ import { HIDDEN_ARG, canOpenAtLogin, closeAction, createPreferences, startsHidde
 import { createCaptureStore } from "../lib/capture-store.mjs";
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
-import { RETAILERS, retailerByCode, windowTitle } from "../lib/retailers.mjs";
+import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
@@ -423,6 +423,16 @@ const listening = new WeakMap();
  */
 const awaited = new WeakMap();
 
+/**
+ * While a sync waits for a list to change in place, the refusal the page's own request met, if it
+ * met one. There is no page load to carry the status and no response the app can name, so the
+ * statuses a store refuses with are watched for on anything the page fetches from the store.
+ * @type {WeakMap<BrowserWindow, { host: string, status: number | null }>}
+ */
+const watchedInPlace = new WeakMap();
+/** What a store answers when it is turning software away: Walmart's 412 and 418, Amazon's 503, and 429. */
+const REFUSALS = new Set([412, 418, 429, 503]);
+
 /** @param {BrowserWindow} win @param {string} kind @param {PageAnswer} answer */
 function answerAwaited(win, kind, answer) {
   const waiting = awaited.get(win);
@@ -490,7 +500,7 @@ const pageData = (win, retailer) =>
  */
 async function runSync(retailer, { visible }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
-  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind } = retailer;
+  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, nextPageInPlace } = retailer;
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
   const siteKey = site.key;
@@ -629,6 +639,70 @@ async function runSync(retailer, { visible }) {
         // the history, so the run does not claim to have caught up.
         if (!answer.payload) break;
         list = answer.payload;
+        continue;
+      }
+
+      // Where the page's own script replaces the list where it stands, there is no page to wait
+      // for and no response the app can name. The run presses, then watches the list on the page
+      // until it shows other orders, and saves the page as it then is: for these pages what is
+      // sent is the page as its script left it, not as the store first sent it.
+      if (nextPageScript && nextPageInPlace) {
+        const before = listSignature(retailer, list);
+        let navigated = false;
+        const onLoad = () => {
+          navigated = true;
+        };
+        win.webContents.on("did-finish-load", onLoad);
+        const watch = { host: new URL(win.webContents.getURL()).host, status: /** @type {number | null} */ (null) };
+        watchedInPlace.set(win, watch);
+        /** @type {string | null} */
+        let moved = null;
+        try {
+          const pressed = await win.webContents.executeJavaScript(nextPageScript).catch(() => false);
+          for (let waited = 0; pressed === true && waited < 45_000 && !win.isDestroyed(); waited += 500) {
+            await pause(500);
+            if (win.isDestroyed() || watch.status) break;
+            const now = await pageData(win, retailer).catch(() => null);
+            if (!now) continue;
+            // A sign-in page or the robot check has no list either; both are looked at below.
+            if (retailer.isSignedOut(listKind, now) || retailer.isChallengePayload?.(now) || retailer.isChallenge(win.webContents.getURL(), { anyHost: Boolean(storeFixture) })) {
+              moved = now;
+              break;
+            }
+            const signature = listSignature(retailer, now);
+            if (signature && signature !== before) {
+              moved = now;
+              break;
+            }
+          }
+        } finally {
+          watchedInPlace.delete(win);
+          if (!win.isDestroyed()) win.webContents.off("did-finish-load", onLoad);
+        }
+        if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
+        if (watch.status) {
+          return finish(`${retailer.name} turned the sync away (${watch.status}). It will not run again by itself.`, {
+            needsMember: true,
+            refused: true,
+          });
+        }
+        const stoppedInPlace = turnedAway(moved);
+        if (stoppedInPlace) return finish(stoppedInPlace, { needsMember: true, refused: true });
+        // Nothing to press, or the list never changed: the list ends here for this run.
+        if (!moved) break;
+        if (retailer.isSignedOut(listKind, moved)) {
+          return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
+        }
+        // If pressing loaded a new page after all, that page was saved as it arrived. Otherwise
+        // nothing has saved these orders yet, so the page is saved here, stripped like the first.
+        if (!navigated) {
+          const payload = stripHtml(moved);
+          if (payload && Buffer.byteLength(payload) <= MAX_CAPTURE_BYTES) {
+            const { added } = store.add({ site: site.origin, retailer: retailer.code, kind: listKind, payload });
+            if (added) void upload();
+          }
+        }
+        list = moved;
         continue;
       }
 
@@ -986,6 +1060,14 @@ function readResponses(retailer, win) {
 
   dbg.on("message", (_event, method, params) => {
     if (method === "Network.responseReceived") {
+      const watched = watchedInPlace.get(win);
+      if (watched && !watched.status && (params.type === "XHR" || params.type === "Fetch") && REFUSALS.has(params.response.status)) {
+        try {
+          if (new URL(params.response.url).host === watched.host) watched.status = params.response.status;
+        } catch {
+          // Not a URL the page could have asked the store for.
+        }
+      }
       const anyHost = Boolean(storeFixture);
       // A store whose data is its HTML: the page as it was sent, before any script ran on it.
       const kind =
