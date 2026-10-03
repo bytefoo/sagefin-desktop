@@ -18,7 +18,7 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
+import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { runningVersion, versionLabel } from "../lib/version.mjs";
@@ -421,7 +421,7 @@ async function runScheduled() {
     if (!maySyncNow(retailer)) continue;
     // With no answer, the app runs as it would with nobody to ask.
     if (!scheduleAllowedBy(sagefinAnswer(retailer.code))) continue;
-    if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now())) {
+    if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY)) {
       void runSync(retailer, { visible: false });
     }
   }
@@ -577,6 +577,11 @@ function navigate(win, begin) {
 // described on the terminal — its path, how it arrived, and whether it was saved. Never its query
 // string or its contents, which hold order numbers.
 const logPages = !app.isPackaged && Boolean(process.env.SAGEFIN_DESKTOP_LOG_PAGES);
+
+// Development only: with SAGEFIN_DESKTOP_SCHEDULE_EVERY_MINUTES set, a scheduled sync is due that
+// many minutes after the last finished one, so one can be watched without waiting a day. An
+// installed app ignores it and schedules daily (lib/sync-plan.mjs).
+const SCHEDULE_EVERY = scheduleEveryMs(process.env.SAGEFIN_DESKTOP_SCHEDULE_EVERY_MINUTES, app.isPackaged);
 /** @param {string} url */
 const pathOf = (url) => {
   try {
@@ -1117,7 +1122,7 @@ function syncStatus(code) {
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
-    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state) : null,
+    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state, SCHEDULE_EVERY) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // retailer turned away. Saying "daily" then would promise a run that will not happen.
     // Nor is it promised while the member's choice is missing or withdrawn.
