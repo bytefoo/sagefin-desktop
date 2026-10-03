@@ -21,6 +21,9 @@ SageFin's servers and web app are not open source; this app is their client.
 
 ## Install
 
+**You only need this app for retail sync.** Everything else in SageFin works in a browser and on
+the phone, with nothing to install.
+
 Download the latest build for your system:
 
 | System | Download | First run |
