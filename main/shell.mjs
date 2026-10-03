@@ -39,9 +39,11 @@ function openInBrowser(url) {
  * @param {() => void} options.background.onHidden  Called when a close hid the window instead.
  * @param {() => Electron.MenuItemConstructorOptions[]} options.background.menuItems
  *   The member's background choices, for the Retailers menu. Asked for each time the menu is built.
+ * @param {() => Electron.MenuItemConstructorOptions[]} options.updateMenuItems
+ *   What there is to say about updates, for the Retailers menu. Asked for each time the menu is built.
  * @returns {{ window: BrowserWindow, switchSite: (site: import("../lib/site.mjs").Site) => void, changed: () => void, show: () => void, refreshMenu: () => void }}
  */
-export function openShell({ site: initialSite, version, onRetailers, retailers, account, onSite, icon, background }) {
+export function openShell({ site: initialSite, version, onRetailers, retailers, account, onSite, icon, background, updateMenuItems }) {
   let site = initialSite;
 
   /** @param {import("../lib/site.mjs").Site} s */
@@ -189,6 +191,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   }
 
   function menu() {
+    const update = updateMenuItems();
     /** @type {Electron.MenuItemConstructorOptions[]} */
     const template = [
       ...(process.platform === "darwin" ? [/** @type {Electron.MenuItemConstructorOptions} */ ({ role: "appMenu" })] : []),
@@ -205,6 +208,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
           { label: "Retailers on This Computer…", accelerator: "CmdOrCtrl+Shift+S", click: onRetailers },
           { type: "separator" },
           ...background.menuItems(),
+          ...(update.length ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([{ type: "separator" }, ...update]) : []),
         ],
       },
       { role: "windowMenu" },

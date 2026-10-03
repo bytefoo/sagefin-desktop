@@ -188,7 +188,7 @@ async function start() {
   // Before the tray: its menu asks whether this copy can update itself, and is built once here.
   updates = startUpdates({
     syncing: () => syncing.size,
-    onChanged: () => tray?.setContextMenu(trayMenu()),
+    onChanged: refreshUpdateMenus,
     beforeRestart: () => {
       quitting = true;
     },
@@ -217,6 +217,7 @@ async function start() {
       onHidden: tellAboutBackground,
       menuItems: backgroundMenuItems,
     },
+    updateMenuItems,
     onRetailers: () => void openRetailersWindow(),
     retailers: {
       status,
@@ -356,32 +357,39 @@ function applyLoginItem() {
   app.setLoginItemSettings({ openAtLogin: preferences.get().openAtLogin, args: [HIDDEN_ARG] });
 }
 
-function trayMenu() {
-  // A downloaded update: offered here because the app may otherwise run for weeks without quitting.
+/**
+ * What the menus say about updates: an update that is downloaded, or the offer to look for one.
+ * Never both, and nothing where the app cannot update itself. One list for the Retailers menu and
+ * the tray, as with the background choices: a desktop with no tray has only the first.
+ * @returns {Electron.MenuItemConstructorOptions[]}
+ */
+function updateMenuItems() {
+  // A downloaded update: offered because the app may otherwise run for weeks without quitting.
   const update = updateMenuItem({ version: updates?.downloaded() ?? null, syncing: syncing.size });
+  if (update) return [{ label: update.label, enabled: update.enabled, click: () => void updates?.restart() }];
   const check = checkMenuItem({
     canUpdate: updates?.canUpdate ?? false,
     version: updates?.downloaded() ?? null,
     checking: updates?.checking() ?? false,
   });
+  return check ? [{ label: check.label, enabled: check.enabled, click: () => void updates?.checkNow() }] : [];
+}
+
+/** Rebuilds both menus that carry the update lines, so neither keeps saying what was true before. */
+function refreshUpdateMenus() {
+  tray?.setContextMenu(trayMenu());
+  main?.refreshMenu();
+}
+
+function trayMenu() {
+  const update = updateMenuItems();
   return Menu.buildFromTemplate([
     // Which version is running: the one place to read it when the window is closed.
     { label: versionLabel(RUNNING_VERSION), enabled: false },
     { type: "separator" },
     { label: "Open SageFin", click: () => main?.show() },
     { label: "Retailers on This Computer…", click: () => void openRetailersWindow() },
-    ...(update
-      ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([
-          { type: "separator" },
-          { label: update.label, enabled: update.enabled, click: () => void updates?.restart() },
-        ])
-      : []),
-    ...(check
-      ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([
-          { type: "separator" },
-          { label: check.label, enabled: check.enabled, click: () => void updates?.checkNow() },
-        ])
-      : []),
+    ...(update.length ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([{ type: "separator" }, ...update]) : []),
     { type: "separator" },
     ...backgroundMenuItems(),
     { type: "separator" },
@@ -1211,8 +1219,8 @@ function tell(code, notice) {
 function changed() {
   home?.webContents.send("desktop:changed");
   main?.changed();
-  // The update line in the tray says whether a sync is in the way, so it follows syncs too.
-  if (updates?.downloaded()) tray?.setContextMenu(trayMenu());
+  // The update line says whether a sync is in the way, so it follows syncs too.
+  if (updates?.downloaded()) refreshUpdateMenus();
 }
 
 /**
