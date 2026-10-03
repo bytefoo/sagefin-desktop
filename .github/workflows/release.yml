@@ -20,7 +20,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # One job makes the draft, so three builds do not race to create it.
+  # One job makes the draft, so three builds do not race to create it. Its notes are the line
+  # below and then what changed: GitHub lists every pull request merged since the last release.
   draft:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -47,7 +48,8 @@ jobs:
         run: |
           gh release view "v$VERSION" >/dev/null 2>&1 \
             || gh release create "v$VERSION" --draft --target "$GITHUB_SHA" --title "v$VERSION" \
-                 --notes "Test build. Not code-signed: see the readme for what each system asks on first run."
+                 --notes "Test build. Not code-signed: see the readme for what each system asks on first run." \
+                 --generate-notes
 
   build:
     needs: draft

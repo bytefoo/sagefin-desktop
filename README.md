@@ -370,6 +370,14 @@ and publishes the release once every build has succeeded. Versions number themse
 `<major>.<minor>` from `package.json`, and the number of commits on `main` as the patch, so every
 merge is a new version. Change `package.json` only to start a new minor or major.
 
+## Problems and changes
+
+Found a bug, or want something the app does not do? Open
+[an issue](https://github.com/bytefoo/sagefin-desktop/issues), with the version and your system.
+Please do not attach a saved page or a screenshot of your orders: issues are public.
+
+Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what one needs.
+
 ## Security
 
 Please report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes, not in an issue.
