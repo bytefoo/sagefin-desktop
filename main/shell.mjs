@@ -5,7 +5,7 @@
 import { app, BrowserWindow, Menu, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { SITES, decideNavigation, decideWindowOpen, isSite } from "../lib/site.mjs";
+import { SITES, decideNavigation, decideWindowOpen, isSite, mainWindowTitle } from "../lib/site.mjs";
 
 const here = import.meta.dirname;
 const UNREACHABLE = pathToFileURL(path.join(here, "..", "renderer", "unreachable.html")).href;
@@ -89,7 +89,7 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
       height: 900,
       minWidth: 480,
       minHeight: 480,
-      title: "SageFin",
+      title: mainWindowTitle("SageFin", s),
       icon,
       show,
       // Windows and Linux draw the menu as a strip inside the window, in the system's colours,
@@ -103,6 +103,14 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
         nodeIntegration: false,
         sandbox: true,
       },
+    });
+
+    // The page titles the window. Showing any SageFin but production, the title also says which.
+    w.on("page-title-updated", (event, title) => {
+      const wanted = mainWindowTitle(title, s);
+      if (wanted === title) return;
+      event.preventDefault();
+      w.setTitle(wanted);
     });
 
     /** @param {Electron.Event} event @param {string} url */

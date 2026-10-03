@@ -19,6 +19,7 @@ import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/re
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
+import { versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -295,6 +296,9 @@ function trayMenu() {
   // A downloaded update: offered here because the app may otherwise run for weeks without quitting.
   const update = updateMenuItem({ version: updates?.downloaded() ?? null, syncing: syncing.size });
   return Menu.buildFromTemplate([
+    // Which version is running: the one place to read it when the window is closed.
+    { label: versionLabel(app.getVersion(), app.isPackaged), enabled: false },
+    { type: "separator" },
     { label: "Open SageFin", click: () => main?.show() },
     { label: "Stores on This Computer…", click: () => void openStores() },
     ...(update
@@ -319,7 +323,7 @@ function openTray() {
   try {
     const size = process.platform === "darwin" ? 18 : 16;
     const icon = new Tray(nativeImage.createFromPath(ICON).resize({ width: size, height: size }));
-    icon.setToolTip("SageFin Desktop");
+    icon.setToolTip(versionLabel(app.getVersion(), app.isPackaged));
     icon.setContextMenu(trayMenu());
     return icon;
   } catch {

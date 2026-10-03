@@ -98,6 +98,9 @@ leaves the app running (`lib/background.mjs`). The rules:
 - **It says so once.** The first close that leaves the app running shows a notification.
 - **It is a choice.** Stores → Keep Running When the Window Is Closed, on by default, also in the
   tray menu. Quit always quits.
+- **It says which version is running.** The icon's tooltip and the first line of its menu carry
+  the version, since the app can run for weeks with its window closed. Run from source, that line
+  ends "(development)", and the window's title names the site whenever it is not production.
 
 On Windows and Linux the menu bar is hidden until Alt is pressed, so the window is only SageFin;
 everything in the menu is also on the tray icon. macOS keeps its menu at the top of the screen.
