@@ -344,6 +344,17 @@ What is checked, and where to see it:
   scores it weekly and on every push to `main`, on things such as branch protection, pinned
   dependencies and workflow permissions. The score in the badge above is theirs, not ours, and
   each check behind it can be read there.
+- **Where a download was built.** Releases from the one after v0.1.19 carry a signed build
+  provenance: a statement, recorded by GitHub and attached to the release as
+  `provenance-<system>.intoto.jsonl`, that the file was built by this repository's
+  [release workflow](.github/workflows/release.yml) from the tagged commit. With the
+  [GitHub CLI](https://cli.github.com) you can check a file you downloaded:
+
+  ```sh
+  gh attestation verify SageFin-Desktop-win-x64.exe --repo bytefoo/sagefin-desktop
+  ```
+
+  This is not code signing, and does not change what each system asks on first run.
 - **Secrets.** GitHub secret scanning is on, with push protection: a push containing a recognised
   credential is refused.
 - **Dependencies.** Dependabot raises an alert, and a pull request, for a dependency with a known
