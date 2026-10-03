@@ -4,7 +4,7 @@
 
 import { app, Notification } from "electron";
 import electronUpdater from "electron-updater";
-import { CHECK_EVERY_MS, FIRST_CHECK_AFTER_MS, canSelfUpdate, mayRestartToUpdate } from "../lib/updates.mjs";
+import { CHECK_EVERY_MS, FIRST_CHECK_AFTER_MS, canSelfUpdate, checkAnswer, mayRestartToUpdate } from "../lib/updates.mjs";
 
 // electron-updater is CommonJS; its named exports are not visible to an ES import.
 const { autoUpdater } = electronUpdater;
@@ -12,15 +12,18 @@ const { autoUpdater } = electronUpdater;
 /**
  * @param {object} options
  * @param {() => number} options.syncing  How many syncs are running now.
- * @param {() => void} options.onChanged  Called when an update has been downloaded, so menus are rebuilt.
+ * @param {() => void} options.onChanged  Called when what the menus say about updates has changed, so they are rebuilt.
  * @param {() => void} options.beforeRestart  Called just before the app restarts to install.
- * @returns {{ downloaded: () => string | null, restart: () => boolean }}
+ * @returns {{ canUpdate: boolean, downloaded: () => string | null, checking: () => boolean, checkNow: () => Promise<void>, restart: () => boolean }}
  */
 export function startUpdates({ syncing, onChanged, beforeRestart }) {
   /** The version that is downloaded and waiting, or null. @type {string | null} */
   let downloaded = null;
 
-  const idle = { downloaded: () => null, restart: () => false };
+  /** Whether a check the member asked for is out. */
+  let checking = false;
+
+  const idle = { canUpdate: false, downloaded: () => null, checking: () => false, checkNow: async () => {}, restart: () => false };
   if (!canSelfUpdate({ platform: process.platform, packaged: app.isPackaged, appImage: Boolean(process.env.APPIMAGE) })) {
     return idle;
   }
@@ -48,8 +51,32 @@ export function startUpdates({ syncing, onChanged, beforeRestart }) {
   setTimeout(check, FIRST_CHECK_AFTER_MS);
   setInterval(check, CHECK_EVERY_MS);
 
+  /** @param {Parameters<typeof checkAnswer>[0]} state */
+  const answer = (state) => {
+    if (Notification.isSupported()) new Notification(checkAnswer(state)).show();
+  };
+
   return {
+    canUpdate: true,
     downloaded: () => downloaded,
+    checking: () => checking,
+    /** The same look the timer takes, asked for by the member, and answered whatever it finds. */
+    async checkNow() {
+      if (checking) return;
+      checking = true;
+      onChanged();
+      const running = app.getVersion();
+      try {
+        const result = await autoUpdater.checkForUpdates();
+        if (result?.isUpdateAvailable) answer({ outcome: "found", running, found: result.updateInfo.version });
+        else answer({ outcome: "current", running });
+      } catch {
+        answer({ outcome: "failed", running });
+      } finally {
+        checking = false;
+        onChanged();
+      }
+    },
     restart() {
       if (!mayRestartToUpdate({ downloaded: downloaded !== null, syncing: syncing() })) return false;
       // Closing the window normally only hides it; this close has to be a real one.

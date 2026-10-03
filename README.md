@@ -246,8 +246,8 @@ Walmart and Amazon are the retailers the app supports today.
   sign-in page. A request lapses after fifteen minutes and is handed over once, so a computer
   that wakes later does not run an old one. The request names a retailer and nothing else: it
   cannot point the app at an address, and it cannot read anything back.
-  - *To GitHub, a few times a day*, to ask whether this repository has published a newer version
-    (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
+  - *To GitHub, once an hour, and when you choose Check for Updates*, to ask whether this
+    repository has published a newer version (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. Where a list has no address for its later pages it presses the list's own Next
@@ -339,8 +339,9 @@ address to resume at; the fingerprints make reading them again cheap.
 
 The update feed is this repository's latest published release: the release workflow attaches a
 small manifest per system (`latest.yml`, `latest-linux.yml`) naming the version, the installer and
-its SHA-512, which the app checks the download against. An update is never installed during a
-sync; the tray says it is waiting. Until the builds are code-signed there is no signature to check
+its SHA-512, which the app checks the download against. The app looks once an hour while it runs;
+Check for Updates on the tray icon looks now, and says what it found. An update is never installed
+during a sync; the tray says it is waiting. Until the builds are code-signed there is no signature to check
 beyond that hash, fetched over HTTPS from GitHub, and macOS does not update at all.
 
 ## How it looks

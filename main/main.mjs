@@ -22,7 +22,7 @@ import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
-import { updateMenuItem } from "../lib/updates.mjs";
+import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
 import { runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
@@ -358,6 +358,11 @@ function applyLoginItem() {
 function trayMenu() {
   // A downloaded update: offered here because the app may otherwise run for weeks without quitting.
   const update = updateMenuItem({ version: updates?.downloaded() ?? null, syncing: syncing.size });
+  const check = checkMenuItem({
+    canUpdate: updates?.canUpdate ?? false,
+    version: updates?.downloaded() ?? null,
+    checking: updates?.checking() ?? false,
+  });
   return Menu.buildFromTemplate([
     // Which version is running: the one place to read it when the window is closed.
     { label: versionLabel(RUNNING_VERSION), enabled: false },
@@ -368,6 +373,12 @@ function trayMenu() {
       ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([
           { type: "separator" },
           { label: update.label, enabled: update.enabled, click: () => void updates?.restart() },
+        ])
+      : []),
+    ...(check
+      ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([
+          { type: "separator" },
+          { label: check.label, enabled: check.enabled, click: () => void updates?.checkNow() },
         ])
       : []),
     { type: "separator" },
