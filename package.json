@@ -67,5 +67,8 @@
         "releaseType": "draft"
       }
     ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
