@@ -35,7 +35,7 @@
       "build/icon-mac.png",
       "!lib/*.test.mjs"
     ],
-    "artifactName": "SageFin-Desktop-${version}-${os}-${arch}.${ext}",
+    "artifactName": "SageFin-Desktop-${os}-${arch}.${ext}",
     "mac": {
       "target": [
         "dmg",

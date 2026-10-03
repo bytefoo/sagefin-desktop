@@ -21,21 +21,37 @@ SageFin's servers and web app are not open source; this app is their client.
 
 ## Install
 
-Builds are attached to [Releases](https://github.com/bytefoo/sagefin-desktop/releases). These are
-early test builds and **are not code-signed yet**, so each system warns about them:
+Download the latest build for your system:
 
-| System | File | First run |
+| System | Download | First run |
 |---|---|---|
-| macOS (Apple Silicon) | `.dmg` | Open it once, then System Settings → Privacy & Security → Open Anyway |
-| Windows | `Setup.exe` | "Windows protected your PC" → More info → Run anyway |
-| Linux | `.AppImage` | Mark it executable and run it |
+| macOS (Apple Silicon) | [SageFin-Desktop-mac-arm64.dmg](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-mac-arm64.dmg) | Open it once, then System Settings → Privacy & Security → Open Anyway |
+| Windows | [SageFin-Desktop-win-x64.exe](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-win-x64.exe) | "Windows protected your PC" → More info → Run anyway |
+| Linux | [SageFin-Desktop-linux-x86_64.AppImage](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-linux-x86_64.AppImage) | Mark it executable and run it |
+
+Every version, with each file's SHA-256, is on [Releases](https://github.com/bytefoo/sagefin-desktop/releases).
+
+These are early test builds and **are not code-signed yet**, which is why each system warns about
+them. A warning you are asked to click through is a reason to be careful: every build here is made
+by the [release workflow](.github/workflows/release.yml) from this source, and you can check the
+file you downloaded against the SHA-256 on its release.
 
 The app opens SageFin, where you need an account. It does not update itself yet: install a newer
 build over the old one.
 
-A warning you are asked to click through is a reason to be careful. Every build here is made by
-the [release workflow](.github/workflows/release.yml) from the tagged source, and each file's
-SHA-256 is listed on its release.
+## Privacy and terms
+
+The app sends the orders pages it saves to SageFin, so what happens to them is SageFin's to answer
+for, not this repository's:
+
+- [SageFin's privacy policy](https://sagefin.app/privacy) says what is kept from a retailer's
+  orders, for how long, and how to delete it.
+- [SageFin's terms of use](https://sagefin.app/terms) cover your use of SageFin, this app included.
+- [Retail orders in SageFin](https://sagefin.app/help/retail-orders) explains the feature, and
+  what each retailer's own terms say about software like this. Using the app with a retailer is
+  your decision to make with those terms in front of you.
+
+The MIT licence below covers this source code only.
 
 ## The main window
 
