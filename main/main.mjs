@@ -20,6 +20,7 @@ import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/re
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
+import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
@@ -404,6 +405,11 @@ function keep(retailer, kind, payload) {
     tell(retailer.code, `Not saved. Choose whether to save ${retailer.name}'s pages in Settings → Retail sync.`);
     return { added: false, kept: false };
   }
+  if (logKeys) {
+    const paths = keyPaths(payload, logKeys);
+    console.log(`keys: ${retailer.code} ${kind}, ${paths.length} matching`);
+    for (const line of paths) console.log(`keys:   ${line}`);
+  }
   const { added } = store.add({ site: site.origin, retailer: retailer.code, kind, payload });
   if (added) void upload();
   return { added, kept: true };
@@ -577,6 +583,11 @@ function navigate(win, begin) {
 // described on the terminal — its path, how it arrived, and whether it was saved. Never its query
 // string or its contents, which hold order numbers.
 const logPages = !app.isPackaged && Boolean(process.env.SAGEFIN_DESKTOP_LOG_PAGES);
+
+// Development only: with SAGEFIN_DESKTOP_LOG_KEYS set to a pattern, each page as it is saved has
+// the paths to its matching keys printed, with the shape of what is there and never a value
+// (lib/key-paths.mjs). How a reader for a retailer's page learns where the page says something.
+const logKeys = app.isPackaged ? null : keyPattern(process.env.SAGEFIN_DESKTOP_LOG_KEYS);
 
 // Development only: with SAGEFIN_DESKTOP_SCHEDULE_EVERY_MINUTES set, a scheduled sync is due that
 // many minutes after the last finished one, so one can be watched without waiting a day. An
