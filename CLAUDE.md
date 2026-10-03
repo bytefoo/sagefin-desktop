@@ -39,8 +39,8 @@ hand, and do not push `v*` tags: publishing the draft creates the tag.
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
-and with the stores' terms. In particular: no request of its own outside a sync; a sync only loads
-pages; it stops at a robot check or a refusal and does not retry; it never solves or asks the
+and with the stores' terms. In particular: no request of its own outside a sync; a sync only moves
+between pages (loading them, and on Amazon pressing the payments list's own Next button); it stops at a robot check or a refusal and does not retry; it never solves or asks the
 member to solve a check for an agent run; Amazon runs carry `Agent/SageFinDesktop`; a stand-in
 fixture page is never sent to a non-local SageFin. A change to any of these changes the readme in
 the same pull request.

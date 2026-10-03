@@ -121,25 +121,36 @@ The store window has no address bar, so its title shows where it is, query and a
 
 ## What it does, and what it deliberately does not
 
-- The member opens a store, signs in themselves, and looks at their orders — or starts a sync,
-  which does the looking for them.
-- After a page **they** opened has finished loading, the app reads that page's embedded data
-  (`__NEXT_DATA__`) and saves it. Nothing on the page is wrapped or changed.
-- As that page then asks the retailer for more — the next page of history as the member scrolls,
-  an order's detail when they click into one — the app saves those answers too. They are read from
-  outside the page, through the DevTools protocol: still nothing on the page is touched, and only
-  the two orders operations `lib/retailers.mjs` names are read out of everything the page requests.
-- It reads only the pages `lib/retailers.mjs` names: Purchase history and an order's own page.
-- Outside a sync it makes **no request of its own**. A sync loads pages, and nothing else: it does
-  not click, fetch or sign in.
-- Its user agent is Electron's own (`sagefin-desktop/<version> … Electron/…`), unchanged.
-- Each retailer has its own persistent browser profile, shared with nothing else.
-- On a retailer's "are you a robot" page it stops and says so.
+"A store" below is any retailer the app supports: Walmart and Amazon today.
 
-A saved page is sent to SageFin, which reads the orders from it; the app never looks inside
-one. Until it is sent it waits on the computer, sealed with the operating system's secret store
-(`safeStorage`); if that is unavailable, nothing is saved at all. Once SageFin holds it, the copy
-here is removed.
+- The member opens a store, signs in themselves, and looks at their orders. Or they start a sync,
+  which opens the same pages for them.
+- **It reads only the orders pages `lib/retailers.mjs` names**, and nothing else in the account:
+  - *Walmart:* Purchase history and an order's own page. It saves the data the page embeds
+    (`__NEXT_DATA__`) once the page has loaded, and the answers to the two orders requests the
+    page itself makes as the member scrolls or clicks into an order. Those are read from outside
+    the page, through the DevTools protocol.
+  - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
+    Amazon sent it, with scripts, styles and images removed.
+- **Nothing on a store's page is wrapped, injected or changed.**
+- **Outside a sync it makes no request of its own.** It saves what the member's own browsing loads.
+- **A sync only moves between pages.** It loads the orders list and each order's page, one at a
+  time and slowly. On Amazon it also presses the payments list's own Next button, because that
+  list has no address for its later pages. It never signs in, fills in a form, changes anything in
+  the account, or composes a request the store's page would not make itself.
+- **It does not disguise itself.** The user agent is Electron's own
+  (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends
+  `Agent/SageFinDesktop`, which Amazon's terms ask of software acting by itself.
+- **It stops at a robot check or a refusal**, says so, and does not try again by itself. It never
+  answers a check, and never asks the member to answer one on a sync's behalf.
+- Each store has its own persistent browser profile, shared with nothing else. A store sign-in
+  stays in that profile on the member's computer; SageFin never receives it.
+
+A saved page is sent to SageFin, which reads the orders from it. The app itself reads only what a
+sync needs to know which page to open next: an order's number, its date, and a fingerprint of the
+few fields that change when the order does. Until a page is sent it waits on the computer, sealed
+with the operating system's secret store (`safeStorage`); if that is unavailable, nothing is saved
+at all. Once SageFin holds it, the copy here is removed.
 
 ## Sending
 
