@@ -42,6 +42,30 @@ jobs:
           fi
           exit $status
 
+  # The readers of a store's page, run against pages nobody wrote. Apart from `test` because
+  # fast-check has to be installed, and `test` proves lib/ needs nothing installed.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      # Only fast-check is used, so Electron's own download is skipped.
+      - run: npm ci --ignore-scripts
+      - name: Fuzz
+        run: |
+          files=$(find fuzz -name '*.fuzz.js' | wc -l)
+          out=$(node --test --test-reporter=tap "fuzz/*.fuzz.js") && status=0 || status=$?
+          echo "$out" | tail -60
+          ran=$(echo "$out" | sed -n 's/^# tests //p')
+          if [ "$files" -eq 0 ] || [ "${ran:-0}" -eq 0 ]; then
+            echo "::error::$files fuzz files, ${ran:-0} tests ran: the step checked nothing"
+            exit 1
+          fi
+          exit $status
+
   # The same packaging a release does, without an installer and without publishing, so a change
   # that breaks the build is found on its pull request and not on a tag.
   pack:
@@ -62,6 +86,7 @@ jobs:
           # The updater is the one library the app ships; without it the packaged app fails to start.
           grep -q '^/node_modules/electron-updater/package.json$' packed.txt
           ! grep -q '\.test\.mjs$' packed.txt
+          ! grep -q -e '^/fuzz/' -e '^/node_modules/fast-check/' packed.txt
       # Packaging can succeed and the app still not start: a library left out of the package, or
       # one that cannot be imported, only fails when the app runs. Start it for a few seconds;
       # `timeout` exiting 124 means it was still running when stopped, which is the pass.

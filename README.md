@@ -315,6 +315,16 @@ npm test
 
 CI runs the same tests on every push and pull request.
 
+```bash
+npm run fuzz
+```
+
+runs the code that reads a retailer's page and address against generated ones (`fuzz/`, with
+[fast-check](https://fast-check.dev)): that no page makes it throw, that nothing is saved from
+anywhere but the retailer over https, and that an order a list names is only ever opened at the
+retailer's own order page. It needs `npm ci` first; `npm test` needs nothing installed. CI runs it
+too.
+
 `SAGEFIN_DESKTOP_STORE_FIXTURE=<file.html>` makes every retailer's window open that local page instead of
 the real site, so opening a retailer from the web app can be exercised without loading one. It may
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
