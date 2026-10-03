@@ -43,7 +43,9 @@ The readme's "What it does, and what it deliberately does not" is the contract w
 and with the stores' terms. In particular: no request of its own to a retailer or to SageFin outside a sync (the
 update check to GitHub is the one exception, and the readme says so); a sync only moves
 between pages (loading them, and pressing a list's own Next button where its later pages have no
-address: Purchase history at Walmart, the payments list at Amazon); it stops at a robot check or a refusal and does not retry; it never solves or asks the
+address: Purchase history at Walmart, the payments list at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes
+whether the app acts, never how (`lib/consent.mjs`);
+it stops at a robot check or a refusal and does not retry; it never solves or asks the
 member to solve a check for an agent run; Amazon runs carry `Agent/SageFinDesktop`; a stand-in
 fixture page is never sent to a non-local SageFin. A change to any of these changes the readme in
 the same pull request.

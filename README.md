@@ -148,6 +148,27 @@ computer, in a window signed in by the member.
 
 The retailer window has no address bar, so its title shows where it is, query and all.
 
+## Your choice, per retailer
+
+A retailer's terms of use are between you and the retailer, and they decide whether a tool may
+read your account for you. Your account carries the risk, and the orders are yours. So the app
+does not decide this in its code. For each retailer it shows you what the terms say, quoted, with
+their date and a link (`lib/retailers.mjs`), and where they prohibit something the app can do, it
+does that only if you say so (`lib/consent.mjs`).
+
+- **Two choices, both off until you make them:** saving the orders pages you open, and syncing
+  (Sync now and the daily schedule). Syncing needs saving.
+- **Walmart's terms prohibit both.** The app says so in Walmart's own words and asks.
+- **Amazon's terms allow software that says what it is.** A sync names itself an agent on every
+  request, so there is nothing to accept, and the app says why.
+- **A choice is about the terms as they were.** It is recorded with the date the retailer says its
+  terms were updated. When that date changes, the app asks again and stays off until you answer.
+- **A choice changes whether the app acts, never how.** The pacing, the stop at the first refusal,
+  the agent marker and never answering a robot check are the same whatever you chose.
+
+Your choice covers your own account. It is not legal advice, and it does not make what a
+retailer's terms prohibit permitted.
+
 ## What it does, and what it deliberately does not
 
 Walmart and Amazon are the retailers the app supports today.
@@ -246,6 +267,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
+| `lib/consent.mjs` | The member's choices per retailer, and the gate they are |
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
@@ -297,7 +319,11 @@ the real site, so opening a retailer from the web app can be exercised without l
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
 page's own requests is exercised.
 
-A development run against a local page instead of a retailer, which saves one capture and quits:
+A stand-in page is still a retailer's as far as the app's gate goes: saving and syncing wait for
+the choice, as they do for the real one.
+
+A development run against a local page instead of a retailer, which saves one capture and quits
+(the one run that does not ask):
 
 ```bash
 SAGEFIN_DESKTOP_CAPTURES=/tmp/desktop-smoke npx electron . --smoke-fixture=fixtures/order-page.html

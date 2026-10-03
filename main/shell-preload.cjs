@@ -17,6 +17,8 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     openStore: (code) => ipcRenderer.invoke("shell:open-store", code),
     // Starts a sync of a store: the app opens its orders list, then each order not yet read.
     syncStore: (code) => ipcRenderer.invoke("shell:sync-store", code),
+    // Records the member's answer about one thing at one store: saving its pages, or syncing it.
+    setConsent: (code, kind, answer) => ipcRenderer.invoke("shell:set-consent", code, kind, answer),
     // Takes the upload-only token the signed-in page minted. Nothing secret ever comes back.
     connect: (credential) => ipcRenderer.invoke("shell:connect", credential),
     disconnect: () => ipcRenderer.invoke("shell:disconnect"),

@@ -24,7 +24,7 @@ function openInBrowser(url) {
  * @param {object} options
  * @param {import("../lib/site.mjs").Site} options.site
  * @param {() => void} options.onStores  Opens the stores window.
- * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean }} options.stores
+ * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.stores
  *   What is saved on this computer, and opening a retailer's window. Counts and names only: a
  *   saved page's contents never cross the bridge.
  * @param {{ connect: (credential: unknown) => boolean, disconnect: () => string | null }} options.account
@@ -66,7 +66,7 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
 
   ipcMain.handle("shell:info", (event) =>
     fromSite(event)
-      ? { app: "sagefin-desktop", version: app.getVersion(), platform: process.platform, capabilities: ["stores", "upload", "sync"] }
+      ? { app: "sagefin-desktop", version: app.getVersion(), platform: process.platform, capabilities: ["stores", "upload", "sync", "consent"] }
       : null,
   );
   ipcMain.handle("shell:stores", (event) => (fromSite(event) ? stores.status() : null));
@@ -75,6 +75,9 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
   );
   ipcMain.handle("shell:sync-store", (event, code) =>
     fromSite(event) && typeof code === "string" ? stores.sync(code) : false,
+  );
+  ipcMain.handle("shell:set-consent", (event, code, kind, answer) =>
+    fromSite(event) && typeof code === "string" ? stores.consent(code, kind, answer) : false,
   );
   ipcMain.handle("shell:connect", (event, credential) => (fromSite(event) ? account.connect(credential) : false));
   ipcMain.handle("shell:disconnect", (event) => (fromSite(event) ? account.disconnect() : null));
