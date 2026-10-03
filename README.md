@@ -159,7 +159,9 @@ Walmart and Amazon are the retailers the app supports today.
     page itself makes as the member scrolls or clicks into an order. Those are read from outside
     the page, through the DevTools protocol.
   - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
-    Amazon sent it, with scripts, styles and images removed.
+    Amazon sent it, with scripts, styles and images removed. The one exception is a payments page
+    after the first, which Amazon's own script builds in place: that one is saved as the page then
+    shows it, stripped the same way.
 - **Nothing on a retailer's page is wrapped, injected or changed.**
 - **Outside a sync it makes no request of its own to a retailer or to SageFin.** It saves what the
   member's own browsing loads. The one request it does make by itself is to GitHub, a few times a
@@ -217,9 +219,12 @@ card encrypted, for Amazon's scripts to decrypt in the browser (seen on 2026-10-
 decrypted page would be going round a measure aimed at software that reads pages, which the Agent
 Terms rule out. Your Payments is not encrypted and lists each charge with its order and date, so a
 run opens it, then the details page of each order with a new or changed charge. It lists twenty
-charges a page, and its next page is a form rather than an address, so a run moves on by submitting
-that form the way the page's own Next button does: the request the page itself makes, under
-the run's marked user agent, never one the app composes. How far back is the same rule as Walmart's,
+charges a page, and its next page has no address. The Next Page button belongs to one of Amazon's
+payments widgets, whose own script takes the press, fetches the next twenty and replaces the list
+where it stands, without loading a page. So a run presses the button the way a person does, waits
+for the list on the page to change, and reads it there: the request is the page's own, under the
+run's marked user agent, never one the app composes. If that request is refused, the run stops
+and so does its schedule. How far back is the same rule as Walmart's,
 by the charges' dates. A run cut short starts again from the first page, since these pages have no
 address to resume at; the fingerprints make reading them again cheap.
 
