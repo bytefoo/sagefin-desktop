@@ -7,15 +7,15 @@
 
 [SageFin](https://sagefin.app) as a desktop app. Its main window is the real web app, loaded from
 the site, so a member can use it instead of a browser. Beside that, it does the one thing a browser
-tab cannot: it opens a store in its own window, the member signs in there themselves, and it saves
-what the store's own orders pages contain and sends them to SageFin, which matches each order to
+tab cannot: it opens a retailer in its own window, the member signs in there themselves, and it saves
+what the retailer's own orders pages contain and sends them to SageFin, which matches each order to
 the bank transaction that paid for it. Electron; Walmart and Amazon today.
 
 It exists because a desktop app is the one client that can show a retailer's real page from the
 member's own computer and connection. SageFin's servers never contact the retailer and never hold
 a retailer sign-in.
 
-**The source is public so you can read what it does with your store sign-ins before you run it.**
+**The source is public so you can read what it does with your retailer sign-ins before you run it.**
 The short version is under [What it does, and what it deliberately does not](#what-it-does-and-what-it-deliberately-does-not).
 SageFin's servers and web app are not open source; this app is their client.
 
@@ -48,9 +48,9 @@ are the site's own, and a web deploy changes the app's interface too.
   member's browser.
 - **A script's pop-up gets a plain window.** That is how a bank's sign-in arrives during account
   linking. It has no preload, so no bridge.
-- **The bridge is small and says nothing a store's page said.** `window.sagefinDesktop.info()`
+- **The bridge is small and says nothing a retailer's page said.** `window.sagefinDesktop.info()`
   tells the web app it is running in the desktop app and what the app can do; `stores()` lists
-  each store with how many pages are saved here; `openStore(code)` opens one; `onStoresChanged`
+  each retailer with how many pages are saved here; `openStore(code)` opens one; `onStoresChanged`
   says when to ask again. Names, counts and times only — a saved page's contents never cross it.
   It exists only on a SageFin origin, and the main process checks the caller's frame and origin
   again before answering. Settings → Retail sync in the web app is where it shows.
@@ -82,9 +82,9 @@ leaves the app running (`lib/background.mjs`). The rules:
 The two choices are in `preferences.json` beside the captures folder, in the clear: neither is a
 secret.
 
-## Syncing a store
+## Syncing a retailer
 
-**Sync now** in Settings → Retail sync opens a store's orders list and then the page of each order
+**Sync now** in Settings → Retail sync opens a retailer's orders list and then the page of each order
 it has not already read in its present state, one at a time. Each page is saved by the same code
 that saves it when the member opens it; the sync only does the opening, from the member's
 computer, in a window signed in by the member.
@@ -102,28 +102,28 @@ computer, in a window signed in by the member.
 - **Only what is new or changed.** The app remembers each order it has read with a fingerprint of
   the few list fields that change when the order does. The whole list entry cannot be used:
   Walmart reorders parts of it on every load.
-- **It stops for a person.** On the store's robot check or a sign-in, the run ends and the window
+- **It stops for a person.** On the retailer's robot check or a sign-in, the run ends and the window
   is shown. It never retries through either. Two order pages in a row that are not the order also
   end it.
 - **Turned away is final until the member says otherwise.** A robot check (by address or by its
   content), or any page answered with a refusal status (Walmart's 412 and 418, Amazon's 503), ends the
   run and stops the daily schedule. The next run is the member's own Sync now; one of theirs that
-  finishes starts the schedule again. For a store whose terms name agents, the run does not ask the
+  finishes starts the schedule again. For a retailer whose terms name agents, the run does not ask the
   member to complete a check for it: an agent never answers a CAPTCHA, and neither does a person on
   its behalf.
 - **Daily, once the member has done it once.** After a sync the member started has finished, the
-  app repeats it every 24 hours while it is running, in a window kept out of the way unless the store
-  needs the member. It never starts a store's schedule by itself.
+  app repeats it every 24 hours while it is running, in a window kept out of the way unless the retailer
+  needs the member. It never starts a retailer's schedule by itself.
 - **The app reads an order's number and where its page is**, to know what to open. Amounts stay
   inside the page's data, untouched, for SageFin to read.
 
-The store window has no address bar, so its title shows where it is, query and all.
+The retailer window has no address bar, so its title shows where it is, query and all.
 
 ## What it does, and what it deliberately does not
 
-"A store" below is any retailer the app supports: Walmart and Amazon today.
+Walmart and Amazon are the retailers the app supports today.
 
-- The member opens a store, signs in themselves, and looks at their orders. Or they start a sync,
+- The member opens a retailer, signs in themselves, and looks at their orders. Or they start a sync,
   which opens the same pages for them.
 - **It reads only the orders pages `lib/retailers.mjs` names**, and nothing else in the account:
   - *Walmart:* Purchase history and an order's own page. It saves the data the page embeds
@@ -132,18 +132,18 @@ The store window has no address bar, so its title shows where it is, query and a
     the page, through the DevTools protocol.
   - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
     Amazon sent it, with scripts, styles and images removed.
-- **Nothing on a store's page is wrapped, injected or changed.**
+- **Nothing on a retailer's page is wrapped, injected or changed.**
 - **Outside a sync it makes no request of its own.** It saves what the member's own browsing loads.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. On Amazon it also presses the payments list's own Next button, because that
   list has no address for its later pages. It never signs in, fills in a form, changes anything in
-  the account, or composes a request the store's page would not make itself.
+  the account, or composes a request the retailer's page would not make itself.
 - **It does not disguise itself.** The user agent is Electron's own
   (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends
   `Agent/SageFinDesktop`, which Amazon's terms ask of software acting by itself.
 - **It stops at a robot check or a refusal**, says so, and does not try again by itself. It never
   answers a check, and never asks the member to answer one on a sync's behalf.
-- Each store has its own persistent browser profile, shared with nothing else. A store sign-in
+- Each retailer has its own persistent browser profile, shared with nothing else. A retailer sign-in
   stays in that profile on the member's computer; SageFin never receives it.
 
 A saved page is sent to SageFin, which reads the orders from it. The app itself reads only what a
@@ -179,7 +179,7 @@ CAPTCHA, and to stop when asked. Saving the pages a member opens acts on nothing
 Amazon window is an ordinary browser. A sync acts by itself, so for the length of a run the window's
 user agent ends `Agent/SageFinDesktop`, which every request the run makes carries, the page's own
 included, and the member's own browsing afterwards does not. It does not imitate a person:
-the pause between pages is the same for every store, there to keep load down, not to look human.
+the pause between pages is the same for every retailer, there to keep load down, not to look human.
 
 **An Amazon sync reads Your Payments, not Your Orders.** Your Orders reaches the app with each order
 card encrypted, for Amazon's scripts to decrypt in the browser (seen on 2026-10-02). Reading the
@@ -209,7 +209,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
-| `lib/html.mjs` | Makes a store's HTML page small enough to send |
+| `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
 
 `lib/` imports nothing from Electron, so its tests run with nothing installed.
 
@@ -245,8 +245,8 @@ npm test
 
 CI runs the same tests on every push and pull request.
 
-`SAGEFIN_DESKTOP_STORE_FIXTURE=<file.html>` makes every store open that local page instead of
-the retailer, so opening a store from the web app can be exercised without loading one. It may
+`SAGEFIN_DESKTOP_STORE_FIXTURE=<file.html>` makes every retailer's window open that local page instead of
+the real site, so opening a retailer from the web app can be exercised without loading one. It may
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
 page's own requests is exercised.
 
@@ -264,7 +264,7 @@ saving (as the capture kinds SageFin's server knows), its robot-check page and i
 It also says where a page's data is (`saves`). Walmart's is the `__NEXT_DATA__` its pages embed,
 read once the page has loaded. Amazon's is the HTML itself, read from the response as Amazon sent
 it, before any script runs, and stripped by `lib/html.mjs`, because that
-is what SageFin's Amazon parser was proved against. A store window loads nothing until it is
+is what SageFin's Amazon parser was proved against. A retailer window loads nothing until it is
 reading responses: the first page would otherwise arrive unread.
 The server needs a parser for each `(retailer, kind)` it should read; a capture with no parser is
 stored there, not refused.
