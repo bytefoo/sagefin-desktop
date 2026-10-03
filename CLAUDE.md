@@ -32,9 +32,10 @@ npm run pack
 ```
 
 builds the app into `dist/` without an installer. A release is the release workflow run by hand
-on `main`: it builds all three systems into a **draft** release, versioned `<major>.<minor>` from
+on `main`: it builds all three systems and **publishes** the release when they all succeed, versioned `<major>.<minor>` from
 `package.json` plus the commit count as the patch (`lib/version.mjs`). Do not bump the patch by
-hand, and do not push `v*` tags: publishing the draft creates the tag.
+hand, and do not push `v*` tags: publishing creates the tag. A run is a public release, with the
+download page on sagefin.app pointing at it, so do not start one to test something.
 
 ## What the app must not do
 
