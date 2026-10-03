@@ -59,8 +59,10 @@ download page on sagefin.app pointing at it, so do not start one to test somethi
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
-and with the stores' terms. In particular: no request of its own to a retailer or to SageFin outside a sync (the
-update check to GitHub is the one exception, and the readme says so); a sync only moves
+and with the stores' terms. In particular: no request of its own to a retailer outside a sync; exactly two requests of
+its own elsewhere, both listed in the readme and neither carrying anything from a page (the
+five-minute check-in with SageFin in `lib/check-in.mjs`, and the update check to GitHub), so a
+third, or a new field on the check-in, changes the readme in the same PR; a sync only moves
 between pages (loading them, and pressing a list's own Next button where its later pages have no
 address: Purchase history at Walmart, the payments list at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes
 whether the app acts, never how (`lib/consent.mjs`);

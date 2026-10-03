@@ -18,6 +18,7 @@ import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
+import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
@@ -77,6 +78,17 @@ let quitting = false;
 const windows = new Map();
 /** The last thing worth telling the member about each retailer. @type {Map<string, string>} */
 const notices = new Map();
+
+/**
+ * SageFin's last answer about which scheduled syncs this computer may run (lib/check-in.mjs).
+ * @type {{ at: number, siteKey: string, answers: Record<string, import("../lib/check-in.mjs").Answer> } | null}
+ */
+let lastCheckIn = null;
+/** The check-in under way, if one is. @type {Promise<void> | null} */
+let checkingIn = null;
+/** Something changed while one was under way, so another follows it. */
+let checkInAgain = false;
+let checkInEveryMs = CHECK_IN_EVERY_MS;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -242,8 +254,10 @@ async function start() {
   // with or without its window (lib/background.mjs).
   // A store is only ever run this way once the member has run it themselves (lib/sync-plan.mjs).
   if (!storeFixture) {
-    setTimeout(runScheduled, 60_000);
-    setInterval(runScheduled, 60 * 60 * 1000);
+    setTimeout(() => void runScheduled(), 60_000);
+    setInterval(() => void runScheduled(), 60 * 60 * 1000);
+    // The regular check-in: how SageFin knows this computer is running, and what its syncs came to.
+    setTimeout(() => void checkInRegularly(), 20_000);
   }
 }
 
@@ -373,17 +387,94 @@ function keep(retailer, kind, payload) {
   return { added, kept: true };
 }
 
-function runScheduled() {
+async function runScheduled() {
   if (!syncStates) return;
+  // Asked first: the member may run the app on another computer that has this retailer's daily
+  // sync, or a retailer may have turned one of them away (lib/check-in.mjs).
+  await checkInNow();
   for (const retailer of RETAILERS) {
     if (!retailer.syncs || syncing.has(retailer.code)) continue;
     // A schedule waits for the member's choice, and stops when the choice is withdrawn or the
     // retailer's terms have changed since it was made.
     if (!maySyncNow(retailer)) continue;
+    // With no answer, the app runs as it would with nobody to ask.
+    if (!scheduleAllowedBy(sagefinAnswer(retailer.code))) continue;
     if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now())) {
       void runSync(retailer, { visible: false });
     }
   }
+}
+
+/**
+ * What SageFin last said about a retailer's scheduled sync, for the site being shown, if it said
+ * it recently enough to act on. Null is nobody to ask.
+ * @param {string} code
+ */
+function sagefinAnswer(code) {
+  return lastCheckIn && lastCheckIn.siteKey === site.key ? standingAnswerFor(lastCheckIn, code, Date.now()) : null;
+}
+
+/**
+ * Tells SageFin what each retailer's last sync on this computer came to, and keeps its answer.
+ * Does nothing until the computer is connected. One at a time: a call during one is answered by
+ * a second check-in that follows it, so what it reports is never older than the call.
+ * @returns {Promise<void>}
+ */
+function checkInNow() {
+  if (checkingIn) {
+    checkInAgain = true;
+    return checkingIn;
+  }
+  const run = (async () => {
+    do {
+      checkInAgain = false;
+      // Never the reason a sync does not run: a check-in that fails is one with no answer.
+      await checkInOnce().catch(() => {});
+    } while (checkInAgain);
+  })().finally(() => {
+    if (checkingIn === run) checkingIn = null;
+  });
+  checkingIn = run;
+  return run;
+}
+
+async function checkInOnce() {
+  if (!syncStates || !credentials) return;
+  // A stand-in page is not an order, and a run over one is not a sync to report.
+  if (storeFixture && site.key !== "local") return;
+  const asked = site;
+  const credential = credentials.get(asked.key);
+  if (!credential) return;
+  const states = syncStates;
+
+  const result = await checkIn({
+    site: asked.origin,
+    secret: credential.secret,
+    version: app.getVersion(),
+    reports: RETAILERS.filter((r) => r.syncs).map((r) => report(r.code, states.get(asked.key, r.code))),
+    fetch,
+  });
+  checkInEveryMs = result.againInMs;
+  if (result.status !== "answered") return;
+
+  lastCheckIn = { at: Date.now(), siteKey: asked.key, answers: result.answers };
+  for (const retailer of RETAILERS) {
+    // Only the retailers this app syncs, whatever the answer names. And not one that is syncing:
+    // the run holds its own copy of this memory and writes it back.
+    const answer = result.answers[retailer.code];
+    if (!retailer.syncs || !answer || syncing.has(retailer.code)) continue;
+    // The member ran Sync now on another computer and it finished: the refusal remembered here
+    // is over there too.
+    const state = states.get(asked.key, retailer.code);
+    if (refusalLifted(state, answer)) states.set(asked.key, retailer.code, { ...state, refusedAt: null });
+  }
+  changed();
+}
+
+/** Checks in, then again after however long SageFin asked for. */
+async function checkInRegularly() {
+  await checkInNow();
+  setTimeout(() => void checkInRegularly(), checkInEveryMs);
 }
 
 const pause = (/** @type {number} */ ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -590,12 +681,17 @@ async function runSync(retailer, { visible }) {
    * the store turning the run away, after which no scheduled run starts until the member's own
    * Sync now finishes.
    */
-  const finish = (/** @type {string} */ result, { finished = false, needsMember = false, refused = false } = {}) => {
+  const finish = (
+    /** @type {string} */ result,
+    { finished = false, needsMember = false, refused = false, signedOut = false, orders = /** @type {number | null} */ (null) } = {},
+  ) => {
     const now = new Date().toISOString();
     state.lastRunAt = now;
     // A run the member did not start is the schedule's: its window is the one kept out of the way.
     state.lastRunBy = visible ? "member" : "schedule";
     state.lastResult = result;
+    state.lastOutcome = finished ? "finished" : refused ? "refused" : signedOut ? "signed_out" : "stopped";
+    state.lastOrders = finished ? orders : null;
     if (finished) {
       state.lastFinishedAt = now;
       state.refusedAt = null;
@@ -616,6 +712,9 @@ async function runSync(retailer, { visible }) {
       }
     }
     changed();
+    // SageFin hears how it ended now, not at the next check-in: a Sync now makes this computer
+    // the one that has the daily sync, and a refusal stops the member's other computers too.
+    void checkInNow();
   };
 
   /**
@@ -650,7 +749,7 @@ async function runSync(retailer, { visible }) {
 
     const listKind = retailer.captureKind(firstUrl) ?? "";
     if (!list || retailer.isSignedOut(listKind, list)) {
-      return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
+      return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
     }
 
     // Page through the orders list until readListPage says stop. A page after the first is reached
@@ -754,7 +853,7 @@ async function runSync(retailer, { visible }) {
         // Nothing to press, or the list never changed: the list ends here for this run.
         if (!moved) break;
         if (retailer.isSignedOut(listKind, moved)) {
-          return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
+          return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
         }
         // If pressing loaded a new page after all, that page was saved as it arrived. Otherwise
         // nothing has saved these orders yet, so the page is saved here, stripped like the first.
@@ -783,7 +882,7 @@ async function runSync(retailer, { visible }) {
       // here with "Sign in to Amazon", having listed 19 orders and opened none.)
       if (!next) break;
       if (retailer.isSignedOut(listKind, next)) {
-        return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
+        return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
       }
       list = next;
     }
@@ -832,7 +931,7 @@ async function runSync(retailer, { visible }) {
       todo.length === 0
         ? "Everything listed was already read."
         : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`,
-      { finished: true },
+      { finished: true, orders: read },
     );
   } catch (error) {
     finish(`The sync stopped: ${error instanceof Error ? error.message : "an unexpected error"}.`);
@@ -937,7 +1036,8 @@ function status() {
         open: windows.has(r.code),
         captures: mine.length,
         lastCapturedAt: mine.at(-1)?.capturedAt ?? null,
-        notice: notices.get(r.code) ?? null,
+        // With nothing of its own to say: why the daily sync is not running on this computer.
+        notice: notices.get(r.code) ?? waitingSentence(sagefinAnswer(r.code), r.name),
         lastSentAt: lastSent.get(r.code)?.at ?? null,
         lastSent: lastSent.has(r.code) ? sentSummary(/** @type {import("../lib/uploader.mjs").SentTally} */ (lastSent.get(r.code))) : null,
         ...syncStatus(r.code),
@@ -984,11 +1084,13 @@ function syncStatus(code) {
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
-    nextSyncAt: state && scheduleAllowed(code) ? nextScheduledRunAt(state) : null,
+    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // store turned away. Saying "daily" then would promise a run that will not happen.
     // Nor is it promised while the member's choice is missing or withdrawn.
-    scheduled: Boolean(state?.lastFinishedAt) && !state?.refusedAt && scheduleAllowed(code),
+    // Nor while another of the member's computers has it, or a retailer turned one of them away.
+    scheduled:
+      Boolean(state?.lastFinishedAt) && !state?.refusedAt && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)),
   };
 }
 
