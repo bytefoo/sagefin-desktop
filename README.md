@@ -189,10 +189,22 @@ Walmart and Amazon are the retailers the app supports today.
     after the first, which Amazon's own script builds in place: that one is saved as the page then
     shows it, stripped the same way.
 - **Nothing on a retailer's page is wrapped, injected or changed.**
-- **Outside a sync it makes no request of its own to a retailer or to SageFin.** It saves what the
-  member's own browsing loads. The one request it does make by itself is to GitHub, a few times a
-  day, to ask whether this repository has published a newer version (`lib/updates.mjs`). That
-  fetches a small public file and sends nothing about the member, their account or their orders.
+- **Outside a sync it makes no request of its own to a retailer.** It saves what the member's own
+  browsing loads.
+- **It makes two requests by itself, and neither carries anything from a page.**
+  - *To SageFin, every five minutes once the computer is connected* (`lib/check-in.mjs`). It sends
+    the app's version and, for each retailer, when its last sync here ran and finished, whether the
+    member or the schedule started it, which of four ways it ended (finished, turned away, met a
+    sign-in page, stopped), how many orders it opened, and when the retailer last turned a run
+    away. No order, no order number, no address, nothing a retailer's page said. The answer is
+    whether this computer may start each retailer's scheduled sync: a member with the app on
+    several computers gets one daily sync per retailer instead of one per computer, and a retailer
+    that turns one computer away is not asked again by the others. Sync now is never asked about.
+    With no answer (offline, or a SageFin that does not know the question) the app syncs as it
+    would with nobody to ask, and a "no" is only believed for fifteen minutes.
+  - *To GitHub, a few times a day*, to ask whether this repository has published a newer version
+    (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
+    their account or their orders.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. Where a list has no address for its later pages it presses the list's own Next
   button: Purchase history's at Walmart, the payments list's at Amazon. It never signs in, fills in a form, changes anything in
@@ -271,6 +283,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
+| `lib/check-in.mjs` | The five-minute check-in with SageFin: what is sent, and what the answer permits |
 | `lib/consent.mjs` | The member's choices per retailer, and the gate they are |
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
