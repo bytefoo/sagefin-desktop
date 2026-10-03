@@ -136,23 +136,23 @@ h1 {
   font-weight: 600;
 }
 
-.store {
+.retailer {
   flex: 1;
   min-width: 0;
 }
 
-.store-name {
+.retailer-name {
   font-weight: 500;
 }
 
-.store-detail,
+.retailer-detail,
 .fine {
   color: var(--muted-foreground);
   font-size: var(--type-caption);
   line-height: var(--type-caption-lh);
 }
 
-.store-detail {
+.retailer-detail {
   overflow-wrap: anywhere;
 }
 

@@ -66,7 +66,7 @@ jobs:
           fi
           npm run typecheck
 
-  # The readers of a store's page, run against pages nobody wrote. Apart from `test` because
+  # The readers of a retailer's page, run against pages nobody wrote. Apart from `test` because
   # fast-check has to be installed, and `test` proves lib/ needs nothing installed.
   fuzz:
     runs-on: ubuntu-latest

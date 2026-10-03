@@ -123,7 +123,7 @@ const ORDER_URL = {
 };
 
 for (const retailer of RETAILERS) {
-  test(`${retailer.name}: no page a store could send makes a reader throw`, () => {
+  test(`${retailer.name}: no page a retailer could send makes a reader throw`, () => {
     fc.assert(
       fc.property(page, fc.constantFrom("order_list_next_data", "order_detail_next_data", "order_list_html", "payments_html", ""), (payload, kind) => {
         retailer.listedOrders?.(payload);

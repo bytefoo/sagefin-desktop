@@ -5,10 +5,10 @@ servers and web app are in a separate private repository.
 
 ## Because it is public
 
-- Nothing private goes in: no real order data, no captured store pages, no tokens, no internal
+- Nothing private goes in: no real order data, no captured retailer pages, no tokens, no internal
   hostnames beyond the three sites in `lib/site.mjs`, and no references to private issues.
 - Test data is made up. A fixture built from a real page is real data.
-- A store's page a development run saves is the member's own purchases. Never commit or paste one.
+- A retailer's page a development run saves is the member's own purchases. Never commit or paste one.
 
 ## Commands
 
@@ -59,7 +59,7 @@ download page on sagefin.app pointing at it, so do not start one to test somethi
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
-and with the stores' terms. In particular: no request of its own to a retailer outside a sync; exactly two requests of
+and with the retailers' terms. In particular: no request of its own to a retailer outside a sync; exactly two requests of
 its own elsewhere, both listed in the readme and neither carrying anything from a page (the
 five-minute check-in with SageFin in `lib/check-in.mjs`, and the update check to GitHub), so a
 third, or a new field on the check-in, changes the readme in the same PR; a sync only moves
