@@ -200,13 +200,23 @@ Walmart and Amazon are the retailers the app supports today.
   - *To SageFin, every five minutes once the computer is connected* (`lib/check-in.mjs`). It sends
     the app's version and, for each retailer, when its last sync here ran and finished, whether the
     member or the schedule started it, which of four ways it ended (finished, turned away, met a
-    sign-in page, stopped), how many orders it opened, and when the retailer last turned a run
-    away. No order, no order number, no address, nothing a retailer's page said. The answer is
-    whether this computer may start each retailer's scheduled sync: a member with the app on
-    several computers gets one daily sync per retailer instead of one per computer, and a retailer
-    that turns one computer away is not asked again by the others. Sync now is never asked about.
+    sign-in page, stopped), how many orders it opened, when the retailer last turned a run
+    away, and whether the member's choices here let the app sync that retailer by itself. No
+    order, no order number, no address, nothing a retailer's page said. The answer is whether this
+    computer may start each retailer's scheduled sync: a member with the app on several computers
+    gets one daily sync per retailer instead of one per computer, and a retailer that turns one
+    computer away is not asked again by the others. Sync now, pressed here, is never asked about.
     With no answer (offline, or a SageFin that does not know the question) the app syncs as it
     would with nobody to ask, and a "no" is only believed for fifteen minutes.
+- **SageFin can ask the app to start a sync, and only the member can make it ask.** The answer to a
+  check-in may carry a sync the member asked for from the SageFin web app, signed in, by pressing
+  Sync now beside this computer. The app runs it exactly as it runs a scheduled sync: out of the
+  way, paced, stopping at the first refusal, never answering a robot check. It starts only where
+  a scheduled sync would: the member has already synced that retailer here themselves, their
+  choices allow it, the retailer has not turned a run away, and the last run did not meet a
+  sign-in page. A request lapses after fifteen minutes and is handed over once, so a computer
+  that wakes later does not run an old one. The request names a retailer and nothing else: it
+  cannot point the app at an address, and it cannot read anything back.
   - *To GitHub, a few times a day*, to ask whether this repository has published a newer version
     (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
