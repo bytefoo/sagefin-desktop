@@ -1,9 +1,10 @@
 name: release
 
 # Run by hand from the Actions tab, on main. It works out the next version, builds the app on each
-# system and attaches the files to a DRAFT release, which a person reads and publishes. Nothing
-# here publishes a release by itself, and nothing here creates a tag: GitHub creates the tag, at
-# the commit that was built, when the draft is published.
+# system, attaches the files to a draft release, and publishes it once every build and the
+# checksums are in. The release stays a draft until then, so a half-built one is never public and
+# a failed run leaves a draft behind rather than a broken release. Publishing creates the tag, at
+# the commit that was built.
 #
 # The version is <major>.<minor> from package.json and the number of commits on main as the patch,
 # so it goes up with every merge and nobody has to remember to bump it. To start a new minor or
@@ -99,3 +100,20 @@ jobs:
             printf '```\n'
           } > ../notes.md
           gh release edit "$TAG" --notes-file ../notes.md
+
+  # Last, and only if everything before it succeeded. Until here the release is a draft nobody can
+  # see; from here the download links and the updater's feed point at it.
+  publish:
+    needs: [draft, checksums]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: v${{ needs.draft.outputs.version }}
+        run: |
+          gh release edit "$TAG" --draft=false --latest
+          echo "Published $TAG" >> "$GITHUB_STEP_SUMMARY"

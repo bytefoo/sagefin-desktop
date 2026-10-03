@@ -297,8 +297,8 @@ npm run pack
 builds the app for this computer into `dist/` without making an installer, and `npm run dist` makes
 the installer.
 
-A release is made by running the release workflow by hand on `main`. It builds all three systems
-and attaches them to a draft release, which a maintainer publishes. Versions number themselves:
+A release is made by running the release workflow by hand on `main`. It builds all three systems,
+and publishes the release once every build has succeeded. Versions number themselves:
 `<major>.<minor>` from `package.json`, and the number of commits on `main` as the patch, so every
 merge is a new version. Change `package.json` only to start a new minor or major.
 
@@ -315,8 +315,9 @@ What is checked, and where to see it:
   credential is refused.
 - **Dependencies.** Dependabot raises an alert, and a pull request, for a dependency with a known
   vulnerability. The app ships one dependency, Electron itself; everything else is build tooling.
-- **Releases.** Built only by the [release workflow](.github/workflows/release.yml) from a version
-  tag only a maintainer can create, on GitHub's own runners, with each file's SHA-256 in the notes.
+- **Releases.** Built and published only by the [release workflow](.github/workflows/release.yml),
+  which only a maintainer can start, on GitHub's own runners, with each file's SHA-256 in the
+  notes. Version tags can be created by that workflow and by maintainers, and by nobody else.
 
 ## Licence
 
