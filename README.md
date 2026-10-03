@@ -155,8 +155,15 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   member to complete a check for it: an agent never answers a CAPTCHA, and neither does a person on
   its behalf.
 - **Daily, once the member has done it once.** After a sync the member started has finished, the
-  app repeats it every 24 hours while it is running, in a window kept out of the way unless the retailer
-  needs the member. It never starts a retailer's schedule by itself. The Retail sync page says
+  app repeats it while it is running, in a window kept out of the way unless the retailer
+  needs the member. It never starts a retailer's schedule by itself.
+- **When, and how often, is the member's to choose.** With nothing chosen a retailer syncs again a
+  day after its last sync finished. In SageFin's Retail sync settings the member can pick an hour
+  of the day and how often: daily, every two or three days, or weekly. Never more often than
+  daily, and an answer that asks for more is ignored. The hour is on this computer's own clock.
+  The choice is kept by SageFin, not here, because with several computers the daily sync belongs
+  to whichever synced last; it arrives with the check-in answer (`scheduledRunAtMs` in
+  `lib/sync-plan.mjs`). Sync now does not move it. The Retail sync page says
   when each retailer last synced, whether you or the schedule started it, and when the next is due.
 - **The app reads an order's number and where its page is**, to know what to open. Amounts stay
   inside the page's data, untouched, for SageFin to read.
@@ -227,7 +234,9 @@ Walmart and Amazon are the retailers the app supports today.
     gets one daily sync per retailer instead of one per computer, and a retailer that turns one
     computer away is not asked again by the others. Sync now, pressed here, is never asked about.
     With no answer (offline, or a SageFin that does not know the question) the app syncs as it
-    would with nobody to ask, and a "no" is only believed for fifteen minutes.
+    would with nobody to ask, and a "no" is only believed for fifteen minutes. The answer also carries when
+    the member wants each retailer to sync by itself; a choice, unlike a "no", is remembered until
+    the app is next told otherwise or restarted.
 - **SageFin can ask the app to start a sync, and only the member can make it ask.** The answer to a
   check-in may carry a sync the member asked for from the SageFin web app, signed in, by pressing
   Sync now beside this computer. The app runs it exactly as it runs a scheduled sync: out of the
