@@ -18,7 +18,7 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue } from "../lib/sync-plan.mjs";
+import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
@@ -214,13 +214,16 @@ async function start() {
         openRetailer(retailer);
         return true;
       },
-      // The member asked for a sync, so its window is theirs to watch.
+      // The member asked for a sync. Its window shows when they may be needed at it, and stays out
+      // of the way otherwise (lib/sync-plan.mjs); Open, beside it, shows the window to anyone who
+      // wants to watch. It is theirs either way.
       sync(code) {
         const retailer = retailerByCode(code);
-        if (!retailer || !retailer.syncs || syncing.has(code)) return false;
+        if (!retailer || !retailer.syncs || syncing.has(code) || !syncStates) return false;
         // Not before the member has chosen, where the retailer's terms make it their choice.
         if (!maySyncNow(retailer)) return false;
-        void runSync(retailer, { visible: true });
+        const visible = showWindowForMemberSync(syncStates.get(site.key, retailer.code));
+        void runSync(retailer, { visible, by: "member" });
         return true;
       },
       // The member's answer, from the Retail sync page, about one thing at one retailer.
