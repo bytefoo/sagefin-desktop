@@ -16,7 +16,7 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
+import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
@@ -536,6 +536,8 @@ async function runSync(retailer, { visible }) {
   const finish = (/** @type {string} */ result, { finished = false, needsMember = false, refused = false } = {}) => {
     const now = new Date().toISOString();
     state.lastRunAt = now;
+    // A run the member did not start is the schedule's: its window is the one kept out of the way.
+    state.lastRunBy = visible ? "member" : "schedule";
     state.lastResult = result;
     if (finished) {
       state.lastFinishedAt = now;
@@ -896,7 +898,9 @@ function syncStatus(code) {
     syncing: syncing.has(code),
     syncProgress: syncing.get(code) ?? null,
     lastSyncAt: state?.lastRunAt ?? null,
+    lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
+    nextSyncAt: state ? nextScheduledRunAt(state) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // store turned away. Saying "daily" then would promise a run that will not happen.
     scheduled: Boolean(state?.lastFinishedAt) && !state?.refusedAt,

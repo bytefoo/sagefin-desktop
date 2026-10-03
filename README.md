@@ -141,7 +141,8 @@ computer, in a window signed in by the member.
   its behalf.
 - **Daily, once the member has done it once.** After a sync the member started has finished, the
   app repeats it every 24 hours while it is running, in a window kept out of the way unless the retailer
-  needs the member. It never starts a retailer's schedule by itself.
+  needs the member. It never starts a retailer's schedule by itself. The Retail sync page says
+  when each retailer last synced, whether you or the schedule started it, and when the next is due.
 - **The app reads an order's number and where its page is**, to know what to open. Amounts stay
   inside the page's data, untouched, for SageFin to read.
 
