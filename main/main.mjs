@@ -16,7 +16,6 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { LINK_SCHEME, linkAction, linkAmong, readSyncLink } from "../lib/sync-link.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
@@ -78,59 +77,12 @@ const notices = new Map();
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  // Starting the app again is also how a hidden window comes back on a desktop with no tray. On
-  // Windows and Linux it is also how a link arrives: as an argument to the second launch.
-  app.on("second-instance", (_event, argv) => {
-    const link = linkAmong(argv);
-    if (link) return onLink(link);
+  // Starting the app again is also how a hidden window comes back on a desktop with no tray.
+  app.on("second-instance", () => {
     if (main) main.show();
     else home?.focus();
   });
-  // macOS hands a link over this way, and may do so before the app is ready.
-  app.on("open-url", (event, url) => {
-    event.preventDefault();
-    onLink(url);
-  });
   void app.whenReady().then(start);
-}
-
-/** A link that arrived before the app had started: with the launch itself, or just after. @type {string | null} */
-let pendingLink = linkAmong(process.argv);
-/** When a link last started each retailer's sync. @type {Map<string, number>} */
-const linkSyncAt = new Map();
-
-/**
- * A `sagefin-desktop://` link (lib/sync-link.mjs). Any page on the web can send one, so it is
- * taken as "the member may want this", never as proof: it always brings the app forward, and
- * starts a sync only where lib/sync-link.mjs says a link may.
- * @param {string} url
- */
-function onLink(url) {
-  if (!main) {
-    pendingLink = url;
-    return;
-  }
-  const link = readSyncLink(url, RETAILERS.filter((r) => r.syncs).map((r) => r.code));
-  if (!link) return;
-  main.show();
-
-  const retailer = link.retailer ? retailerByCode(link.retailer) : null;
-  if (!retailer || !syncStates) return;
-  const state = syncStates.get(site.key, retailer.code);
-  const now = Date.now();
-  const action = linkAction({
-    retailer: retailer.code,
-    lastFinishedAt: state.lastFinishedAt,
-    refusedAt: state.refusedAt,
-    syncing: syncing.has(retailer.code),
-    lastLinkSyncAt: linkSyncAt.get(retailer.code) ?? null,
-    now,
-  });
-  if (action !== "sync") return;
-  linkSyncAt.set(retailer.code, now);
-  // In a window the member can see: they asked from a browser on this computer, and a sign-in or
-  // a robot check is theirs to see.
-  void runSync(retailer, { visible: true });
 }
 
 // A hidden window is still a window, so this fires only when the last one closed for real.
@@ -263,13 +215,9 @@ async function start() {
   // Whatever was saved and not sent before the app last closed.
   void upload();
 
-  // Links are only for an installed app: a development run would register Electron itself.
-  if (app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME);
-  if (pendingLink) {
-    const link = pendingLink;
-    pendingLink = null;
-    onLink(link);
-  }
+  // Version 0.1.19 registered itself to open `sagefin-desktop://` links, a feature that was taken
+  // out again. An update from it lets go of that, so no page on the web can start this app.
+  if (app.isPackaged) app.removeAsDefaultProtocolClient("sagefin-desktop");
 
   // Scheduled runs: looked at a minute after start and hourly after that, while the app is running,
   // with or without its window (lib/background.mjs).
