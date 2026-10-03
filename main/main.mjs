@@ -19,7 +19,7 @@ import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
-import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
+import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
 import { runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
@@ -473,7 +473,7 @@ async function checkInOnce() {
     site: asked.origin,
     secret: credential.secret,
     version: RUNNING_VERSION,
-    reports: RETAILERS.filter((r) => r.syncs).map((r) => report(r.code, states.get(asked.key, r.code))),
+    reports: RETAILERS.filter((r) => r.syncs).map((r) => report(r.code, states.get(asked.key, r.code), maySyncNow(r))),
     fetch,
   });
   checkInEveryMs = result.againInMs;
@@ -489,6 +489,12 @@ async function checkInOnce() {
     // is over there too.
     const state = states.get(asked.key, retailer.code);
     if (refusalLifted(state, answer)) states.set(asked.key, retailer.code, { ...state, refusedAt: null });
+
+    // A sync the member asked for from the web. It runs as a scheduled one does, out of the way,
+    // and is theirs: they started it, though not from here. Only for the SageFin still on screen.
+    if (asked.key === site.key && shouldStartRequested(states.get(asked.key, retailer.code), answer, Date.now())) {
+      void runSync(retailer, { visible: false, by: "member" });
+    }
   }
   changed();
 }
@@ -667,10 +673,12 @@ const pageData = (win, retailer) =>
  * sign-in. It never retries through either.
  *
  * @param {import("../lib/retailers.mjs").Retailer} retailer
- * @param {{ visible: boolean }} options  False for a scheduled run, whose window stays out of the
- *   way unless the retailer needs the member.
+ * @param {{ visible: boolean, by?: "member" | "schedule" }} options
+ *   `visible` is false for a run nobody at this computer started, whose window stays out of the
+ *   way unless the retailer needs the member. `by` says who started it when that is not who
+ *   `visible` implies: a sync the member asked for from the web is theirs, and runs out of the way.
  */
-async function runSync(retailer, { visible }) {
+async function runSync(retailer, { visible, by }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
   // Every way a sync starts comes through here, so this is the gate that cannot be walked round.
   if (!maySyncNow(retailer)) return;
@@ -709,8 +717,8 @@ async function runSync(retailer, { visible }) {
   ) => {
     const now = new Date().toISOString();
     state.lastRunAt = now;
-    // A run the member did not start is the schedule's: its window is the one kept out of the way.
-    state.lastRunBy = visible ? "member" : "schedule";
+    // Unless told otherwise, a run with its window out of the way is the schedule's.
+    state.lastRunBy = by ?? (visible ? "member" : "schedule");
     state.lastResult = result;
     state.lastOutcome = finished ? "finished" : refused ? "refused" : signedOut ? "signed_out" : "stopped";
     state.lastOrders = finished ? orders : null;
