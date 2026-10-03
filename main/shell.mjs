@@ -31,6 +31,7 @@ function openInBrowser(url) {
  *   Taking the upload-only token the signed-in page minted, and letting go of it.
  * @param {(site: import("../lib/site.mjs").Site) => void} options.onSite
  *   Called when a development run switches to another SageFin.
+ * @param {string} options.version  The version the app reports about itself (lib/version.mjs).
  * @param {string} options.icon  The window icon, where the platform shows one.
  * @param {object} options.background  Running in the background (lib/background.mjs).
  * @param {boolean} options.background.hidden  Start without showing the window.
@@ -40,7 +41,7 @@ function openInBrowser(url) {
  *   The member's background choices, for the Retailers menu. Asked for each time the menu is built.
  * @returns {{ window: BrowserWindow, switchSite: (site: import("../lib/site.mjs").Site) => void, changed: () => void, show: () => void, refreshMenu: () => void }}
  */
-export function openShell({ site: initialSite, onRetailers, retailers, account, onSite, icon, background }) {
+export function openShell({ site: initialSite, version, onRetailers, retailers, account, onSite, icon, background }) {
   let site = initialSite;
 
   /** @param {import("../lib/site.mjs").Site} s */
@@ -66,7 +67,7 @@ export function openShell({ site: initialSite, onRetailers, retailers, account, 
 
   ipcMain.handle("shell:info", (event) =>
     fromSite(event)
-      ? { app: "sagefin-desktop", version: app.getVersion(), platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent"] }
+      ? { app: "sagefin-desktop", version, platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent"] }
       : null,
   );
   ipcMain.handle("shell:retailers", (event) => (fromSite(event) ? retailers.status() : null));
