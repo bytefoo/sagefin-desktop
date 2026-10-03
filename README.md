@@ -2,6 +2,7 @@
 
 [![ci](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml)
 [![codeql](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/bytefoo/sagefin-desktop/badge)](https://scorecard.dev/viewer/?uri=github.com/bytefoo/sagefin-desktop)
 [![latest release](https://img.shields.io/github/v/release/bytefoo/sagefin-desktop)](https://github.com/bytefoo/sagefin-desktop/releases/latest)
 [![licence: MIT](https://img.shields.io/github/license/bytefoo/sagefin-desktop)](LICENSE)
 
@@ -339,6 +340,10 @@ What is checked, and where to see it:
 - **Code scanning.** [CodeQL](.github/workflows/codeql.yml) runs on every pull request, every push
   to `main` and weekly. The `codeql` badge above is its last run on `main`; a pull request cannot
   merge with it failing. GitHub shows the individual findings only to maintainers.
+- **How the repository is run.** [OpenSSF Scorecard](https://scorecard.dev/viewer/?uri=github.com/bytefoo/sagefin-desktop)
+  scores it weekly and on every push to `main`, on things such as branch protection, pinned
+  dependencies and workflow permissions. The score in the badge above is theirs, not ours, and
+  each check behind it can be read there.
 - **Secrets.** GitHub secret scanning is on, with push protection: a push containing a recognised
   credential is refused.
 - **Dependencies.** Dependabot raises an alert, and a pull request, for a dependency with a known
