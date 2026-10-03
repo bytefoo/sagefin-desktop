@@ -368,6 +368,11 @@ the real site, so opening a retailer from the web app can be exercised without l
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
 page's own requests is exercised.
 
+`SAGEFIN_DESKTOP_LOG_KEYS=<pattern>` prints, for each page as it is saved, the paths to the keys
+whose names match the pattern, with the type and size of what is there. It never prints a value.
+It is how a reader for a retailer's page is written against the page as the retailer really sends
+it, when the fixtures here have had the member's own details taken out. An installed app ignores it.
+
 `SAGEFIN_DESKTOP_SCHEDULE_EVERY_MINUTES=<n>` makes a scheduled sync due that many minutes after the
 last finished one, where an installed app waits a day. It exists so the scheduled run can be watched
 happening. The app still looks a minute after it starts and hourly after that, so set it and
