@@ -109,6 +109,13 @@ const notices = new Map();
  * @type {{ at: number, siteKey: string, answers: Record<string, import("../lib/check-in.mjs").Answer> } | null}
  */
 let lastCheckIn = null;
+/**
+ * What the member chose for when each retailer syncs by itself, by site and retailer, as SageFin
+ * last said. Kept past the answer it came with: a choice does not lapse because SageFin has been
+ * out of reach for a quarter of an hour, though a "no" does.
+ * @type {Map<string, import("../lib/sync-plan.mjs").ChosenSchedule | null>}
+ */
+const chosenSchedules = new Map();
 /** The check-in under way, if one is. @type {Promise<void> | null} */
 let checkingIn = null;
 /** Something changed while one was under way, so another follows it. */
@@ -448,10 +455,15 @@ async function runScheduled() {
     if (!maySyncNow(retailer)) continue;
     // With no answer, the app runs as it would with nobody to ask.
     if (!scheduleAllowedBy(sagefinAnswer(retailer.code))) continue;
-    if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY)) {
+    if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY, chosenSchedule(retailer.code))) {
       void runSync(retailer, { visible: false });
     }
   }
+}
+
+/** When the member wants a retailer to sync by itself, for the site being shown. @param {string} code */
+function chosenSchedule(code) {
+  return chosenSchedules.get(`${site.key}:${code}`) ?? null;
 }
 
 /**
@@ -509,6 +521,7 @@ async function checkInOnce() {
   if (result.status !== "answered") return;
 
   lastCheckIn = { at: Date.now(), siteKey: asked.key, answers: result.answers };
+  for (const [code, answer] of Object.entries(result.answers)) chosenSchedules.set(`${asked.key}:${code}`, answer.schedule ?? null);
   for (const retailer of RETAILERS) {
     // Only the retailers this app syncs, whatever the answer names. And not one that is syncing:
     // the run holds its own copy of this memory and writes it back.
@@ -1159,7 +1172,7 @@ function syncStatus(code) {
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
-    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state, SCHEDULE_EVERY) : null,
+    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state, SCHEDULE_EVERY, chosenSchedule(code)) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // retailer turned away. Saying "daily" then would promise a run that will not happen.
     // Nor is it promised while the member's choice is missing or withdrawn.
