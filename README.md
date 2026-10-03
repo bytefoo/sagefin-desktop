@@ -118,12 +118,14 @@ computer, in a window signed in by the member.
 - **Slowly, and not many.** Five seconds between pages, at most ten pages of the orders list and
   twenty orders in a run (`lib/sync-plan.mjs`). A daily run usually reads one list page and opens
   none or one order.
-- **Three months back, then only what is new.** Purchase history lists five orders a page. A run
-  pages through it by the numbered addresses the page's own arrows lead to (`/orders?page=2`), as
-  full loads, until it reaches orders older than 90 days or the end of the history; an older order
-  has no bank transaction in SageFin to match. A long history is caught up over several days: each
-  run resumes at the page the last finished one stopped on. Once caught up, a run stops at the
-  first list page with nothing to open. The cost of that is deliberate: a late change to an order
+- **Three months back, then only what is new.** Purchase history lists five orders a page, and
+  pages by a cursor the page holds, not by its address: loading `/orders?page=2` afresh shows the
+  first five again. So a run goes to the next page the way a person does, by pressing the page's
+  own **Next page** button, and reads the orders from the request the page then makes. It carries
+  on until it reaches orders older than 90 days or the end of the history; an older order has no
+  bank transaction in SageFin to match. It opens at most twenty orders a run, so a long history is
+  caught up over several days. Once caught up, a run stops at the first list page with nothing to
+  open. The cost of that is deliberate: a late change to an order
   past the first page, such as a refund, is not seen by a scheduled run.
 - **Only what is new or changed.** The app remembers each order it has read with a fingerprint of
   the few list fields that change when the order does. The whole list entry cannot be used:
@@ -164,8 +166,8 @@ Walmart and Amazon are the retailers the app supports today.
   day, to ask whether this repository has published a newer version (`lib/updates.mjs`). That
   fetches a small public file and sends nothing about the member, their account or their orders.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
-  time and slowly. On Amazon it also presses the payments list's own Next button, because that
-  list has no address for its later pages. It never signs in, fills in a form, changes anything in
+  time and slowly. Where a list has no address for its later pages it presses the list's own Next
+  button: Purchase history's at Walmart, the payments list's at Amazon. It never signs in, fills in a form, changes anything in
   the account, or composes a request the retailer's page would not make itself.
 - **It does not disguise itself.** The user agent is Electron's own
   (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends

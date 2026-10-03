@@ -42,7 +42,8 @@ download page on sagefin.app pointing at it, so do not start one to test somethi
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
 and with the stores' terms. In particular: no request of its own to a retailer or to SageFin outside a sync (the
 update check to GitHub is the one exception, and the readme says so); a sync only moves
-between pages (loading them, and on Amazon pressing the payments list's own Next button); it stops at a robot check or a refusal and does not retry; it never solves or asks the
+between pages (loading them, and pressing a list's own Next button where its later pages have no
+address: Purchase history at Walmart, the payments list at Amazon); it stops at a robot check or a refusal and does not retry; it never solves or asks the
 member to solve a check for an agent run; Amazon runs carry `Agent/SageFinDesktop`; a stand-in
 fixture page is never sent to a non-local SageFin. A change to any of these changes the readme in
 the same pull request.

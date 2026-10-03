@@ -415,6 +415,52 @@ const lastStatus = new WeakMap();
 /** Each store window's wait for its response reader to start. @type {WeakMap<BrowserWindow, Promise<void>>} */
 const listening = new WeakMap();
 
+/**
+ * What a sync is waiting for the page to fetch, per window: a capture kind, and who to tell. The
+ * answer is the response's text, or the status the store refused it with.
+ * @typedef {{ payload: string | null, status: number | null }} PageAnswer
+ * @type {WeakMap<BrowserWindow, { kind: string, tell: (answer: PageAnswer) => void }>}
+ */
+const awaited = new WeakMap();
+
+/** @param {BrowserWindow} win @param {string} kind @param {PageAnswer} answer */
+function answerAwaited(win, kind, answer) {
+  const waiting = awaited.get(win);
+  if (!waiting || waiting.kind !== kind) return;
+  awaited.delete(win);
+  waiting.tell(answer);
+}
+
+/**
+ * Presses something in the page that makes the page fetch more, and waits for what it fetches.
+ * `pressed` is false when there was nothing to press. A press that is answered with a refusal comes
+ * back as its status; one that is never answered comes back with neither.
+ * @param {BrowserWindow} win
+ * @param {string} script  An expression that presses and returns true, or returns false.
+ * @param {string} kind    The capture kind of the response to wait for.
+ * @returns {Promise<PageAnswer & { pressed: boolean }>}
+ */
+function pressAndRead(win, script, kind) {
+  return new Promise((resolve) => {
+    if (win.isDestroyed()) return resolve({ pressed: false, payload: null, status: null });
+    const timer = setTimeout(() => {
+      awaited.delete(win);
+      resolve({ pressed: true, payload: null, status: null });
+    }, 45_000);
+    const settle = (/** @type {PageAnswer & { pressed: boolean }} */ answer) => {
+      clearTimeout(timer);
+      awaited.delete(win);
+      resolve(answer);
+    };
+    // Waiting before pressing: the answer can arrive before the press has reported back.
+    awaited.set(win, { kind, tell: (answer) => settle({ pressed: true, ...answer }) });
+    win.webContents.executeJavaScript(script).then(
+      (pressed) => pressed === true || settle({ pressed: false, payload: null, status: null }),
+      () => settle({ pressed: false, payload: null, status: null }),
+    );
+  });
+}
+
 /** The data a store's page embeds, or null. @param {BrowserWindow} win @returns {Promise<string | null>} */
 /**
  * What a sync reads from the page it has loaded, to know what to open next. Never what is saved,
@@ -444,7 +490,7 @@ const pageData = (win, retailer) =>
  */
 async function runSync(retailer, { visible }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
-  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript } = retailer;
+  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind } = retailer;
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
   const siteKey = site.key;
@@ -534,9 +580,8 @@ async function runSync(retailer, { visible }) {
       return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
     }
 
-    // Page through Purchase history, five orders at a time, until readListPage says stop. Each
-    // page is a full load of the address the page's own arrows lead to, and is saved by the same
-    // code that saves the first.
+    // Page through the orders list until readListPage says stop. A page after the first is reached
+    // as a person reaches it, and is saved by the same code that saves what a person opens.
     /** @type {import("../lib/retailers.mjs").ListedOrder[]} */
     const listed = [];
     let pageNumber = 1;
@@ -565,8 +610,28 @@ async function runSync(retailer, { visible }) {
       await pause(pauseBetweenOrders);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
 
-      // A list whose next page is a form is moved on by the page's own form, submitted as its Next
-      // button submits it: the request the page itself makes, under the run's marked user agent.
+      // A list with no address for its next page is moved on by the page's own Next control,
+      // pressed as a person presses it: the request the page itself makes, under the run's user
+      // agent. Where the page fetches the next orders by itself, they are read from that request.
+      if (nextPageScript && nextPageKind) {
+        const answer = await pressAndRead(win, nextPageScript, nextPageKind);
+        if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
+        if (answer.status) {
+          return finish(`${retailer.name} turned the sync away (${answer.status}). It will not run again by itself.`, {
+            needsMember: true,
+            refused: true,
+          });
+        }
+        // Pressing may have landed on the store's robot check instead of fetching anything.
+        const stoppedOnPress = turnedAway();
+        if (stoppedOnPress) return finish(stoppedOnPress, { needsMember: true, refused: true });
+        // Nothing to press, or nothing came back: the list ends here for this run. Not the end of
+        // the history, so the run does not claim to have caught up.
+        if (!answer.payload) break;
+        list = answer.payload;
+        continue;
+      }
+
       const url = nextPageScript ? null : listPageUrl(pageNumber);
       const loadedPage = nextPageScript
         ? await follow(win, nextPageScript)
@@ -930,6 +995,8 @@ function readResponses(retailer, win) {
       }
       // Only an answer. A refusal's body is not an order, and is the retailer's to show.
       if (kind && params.response.status === 200) wanted.set(params.requestId, kind);
+      // A sync waiting on this request is told the store refused it, so it stops there.
+      else if (kind && params.response.status >= 400) answerAwaited(win, kind, { payload: null, status: params.response.status });
       return;
     }
     if (method !== "Network.loadingFinished") return;
@@ -944,6 +1011,8 @@ function readResponses(retailer, win) {
         const raw = base64Encoded ? Buffer.from(body, "base64").toString("utf8") : body;
         if (logPages) console.log(`page: read ${kind}, ${raw.length} chars`);
         const payload = retailer.saves === "document" ? stripHtml(raw) : raw;
+        // A sync that pressed the page's Next control reads the next orders from this.
+        answerAwaited(win, kind, { payload: payload || null, status: null });
         if (!payload) return;
         if (retailer.isChallengePayload?.(payload)) {
           win.setTitle(`${retailer.name} is checking this browser`);
