@@ -31,8 +31,10 @@ production only).
 npm run pack
 ```
 
-builds the app into `dist/` without an installer. A release is a tag `v<version>` matching
-`package.json`; the release workflow builds all three systems into a **draft** release.
+builds the app into `dist/` without an installer. A release is the release workflow run by hand
+on `main`: it builds all three systems into a **draft** release, versioned `<major>.<minor>` from
+`package.json` plus the commit count as the patch (`lib/version.mjs`). Do not bump the patch by
+hand, and do not push `v*` tags: publishing the draft creates the tag.
 
 ## What the app must not do
 
