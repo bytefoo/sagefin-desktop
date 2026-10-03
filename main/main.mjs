@@ -16,6 +16,7 @@ import { createCaptureStore } from "../lib/capture-store.mjs";
 import { CONSENT_KINDS, allowed, createConsents, maySync, needsChoice, standingAnswer } from "../lib/consent.mjs";
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
+import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
@@ -84,6 +85,8 @@ let uploading = false;
 let uploadAgain = false;
 /** The member's choices about each retailer (lib/consent.mjs). @type {ReturnType<typeof createConsents> | null} */
 let consents = null;
+/** What the member calls their account at a retailer whose pages do not say (lib/account-names.mjs). @type {ReturnType<typeof createAccountNames> | null} */
+let accountNames = null;
 /** What each sync has already read. @type {ReturnType<typeof createSyncStates> | null} */
 let syncStates = null;
 /** The syncs running now, and what each is doing. @type {Map<string, string>} */
@@ -147,6 +150,7 @@ async function start() {
     credentials = createCredentialStore({ dir: path.join(dir, "..", "account"), ...sealing });
     syncStates = createSyncStates({ dir: path.join(dir, "..", "sync"), ...sealing });
     consents = createConsents({ dir: path.join(dir, "..", "consent"), ...sealing });
+    accountNames = createAccountNames({ dir: path.join(dir, "..", "account-names"), ...sealing });
   }
 
   ipcMain.handle("desktop:status", (event) => (fromHome(event) ? status() : null));
@@ -236,6 +240,18 @@ async function start() {
         if (!needsChoice(retailer, which)) return false;
         consents.set(retailer, which, answer);
         changed();
+        return true;
+      },
+      // What the member calls the account they are signed in to here, where the retailer's pages
+      // do not say. Nothing given takes the name away.
+      accountName(code, name) {
+        const retailer = retailerByCode(code);
+        if (!retailer?.memberNamesAccount || !accountNames) return false;
+        if (name !== null && typeof name !== "string") return false;
+        accountNames.set(site.key, retailer.code, name);
+        changed();
+        // SageFin hears now, so the next page saved is filed under the right account.
+        void checkInNow();
         return true;
       },
     },
@@ -482,7 +498,9 @@ async function checkInOnce() {
     site: asked.origin,
     secret: credential.secret,
     version: RUNNING_VERSION,
-    reports: RETAILERS.filter((r) => r.syncs).map((r) => report(r.code, states.get(asked.key, r.code), maySyncNow(r))),
+    reports: RETAILERS.filter((r) => r.syncs).map((r) =>
+      report(r.code, states.get(asked.key, r.code), maySyncNow(r), r.memberNamesAccount ? (accountNames?.get(asked.key, r.code) ?? null) : null),
+    ),
     fetch,
   });
   checkInEveryMs = result.againInMs;
@@ -1131,6 +1149,9 @@ function syncStatus(code) {
   const state = syncStates?.get(site.key, code);
   return {
     syncable: Boolean(retailerByCode(code)?.syncs),
+    // Whether this retailer's account is one the member names, and the name they gave it here.
+    namesAccount: Boolean(retailerByCode(code)?.memberNamesAccount),
+    accountName: retailerByCode(code)?.memberNamesAccount ? (accountNames?.get(site.key, code) ?? null) : null,
     syncing: syncing.has(code),
     syncProgress: syncing.get(code) ?? null,
     lastSyncAt: state?.lastRunAt ?? null,

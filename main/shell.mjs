@@ -24,7 +24,7 @@ function openInBrowser(url) {
  * @param {object} options
  * @param {import("../lib/site.mjs").Site} options.site
  * @param {() => void} options.onRetailers  Opens the retailers window.
- * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.retailers
+ * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, accountName: (code: string, name: unknown) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.retailers
  *   What is saved on this computer, and opening a retailer's window. Counts and names only: a
  *   saved page's contents never cross the bridge.
  * @param {{ connect: (credential: unknown) => boolean, disconnect: () => string | null }} options.account
@@ -67,7 +67,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
 
   ipcMain.handle("shell:info", (event) =>
     fromSite(event)
-      ? { app: "sagefin-desktop", version, platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent"] }
+      ? { app: "sagefin-desktop", version, platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name"] }
       : null,
   );
   ipcMain.handle("shell:retailers", (event) => (fromSite(event) ? retailers.status() : null));
@@ -76,6 +76,9 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   );
   ipcMain.handle("shell:sync-retailer", (event, code) =>
     fromSite(event) && typeof code === "string" ? retailers.sync(code) : false,
+  );
+  ipcMain.handle("shell:set-account-name", (event, code, name) =>
+    fromSite(event) && typeof code === "string" ? retailers.accountName(code, name) : false,
   );
   ipcMain.handle("shell:set-consent", (event, code, kind, answer) =>
     fromSite(event) && typeof code === "string" ? retailers.consent(code, kind, answer) : false,

@@ -163,6 +163,18 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 
 The retailer window has no address bar, so its title shows where it is, query and all.
 
+## Which account, at a retailer whose pages do not say
+
+SageFin keeps one daily sync per retailer account, and keeps each account's orders apart. For
+Walmart it tells accounts apart itself, from Walmart's own pages. Amazon's pages, as the app saves
+them, greet the member by first name and name no account. So for Amazon the member may give the
+account a name on each computer, in Settings → Retail sync ("Derek's Amazon"). Two computers given
+the same name are one account; two given different names are two.
+
+The name is a label the member typed (`lib/account-names.mjs`). It is never read from a page and
+never checked against one, it is kept sealed on the computer, and it goes to SageFin with the
+check-in. A member with one Amazon account never needs to give one.
+
 ## Your choice, per retailer
 
 A retailer's terms of use are between you and the retailer, and they decide whether a tool may
@@ -207,8 +219,10 @@ Walmart and Amazon are the retailers the app supports today.
     the app's version and, for each retailer, when its last sync here ran and finished, whether the
     member or the schedule started it, which of four ways it ended (finished, turned away, met a
     sign-in page, stopped), how many orders it opened, when the retailer last turned a run
-    away, and whether the member's choices here let the app sync that retailer by itself. No
-    order, no order number, no address, nothing a retailer's page said. The answer is whether this
+    away, whether the member's choices here let the app sync that retailer by itself, and, for a
+    retailer whose pages do not say whose account they are, the name the member gave that account
+    on this computer if they gave one. No order, no order number, no address, nothing a retailer's
+    page said. The answer is whether this
     computer may start each retailer's scheduled sync: a member with the app on several computers
     gets one daily sync per retailer instead of one per computer, and a retailer that turns one
     computer away is not asked again by the others. Sync now, pressed here, is never asked about.
