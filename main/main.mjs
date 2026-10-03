@@ -641,7 +641,12 @@ async function runSync(retailer, { visible }) {
       const stoppedOnList = turnedAway(next);
       if (stoppedOnList) return finish(stoppedOnList, { needsMember: true, refused: true });
 
-      if (!next || retailer.isSignedOut(listKind, next)) {
+      // The next page could not be reached: nothing to press, or pressing loaded no page. That is
+      // not a sign-in and not a refusal, so the run keeps what it has listed and opens those. It
+      // does not claim the history was read to its end. (On 2026-10-03 a real Amazon run ended
+      // here with "Sign in to Amazon", having listed 19 orders and opened none.)
+      if (!next) break;
+      if (retailer.isSignedOut(listKind, next)) {
         return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true });
       }
       list = next;
