@@ -89,6 +89,10 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
       title: "SageFin",
       icon,
       show,
+      // Windows and Linux draw the menu as a strip inside the window, in the system's colours,
+      // above an app that has its own. Hidden until Alt is pressed; everything in it is also on
+      // the tray icon. macOS keeps its menu at the top of the screen and ignores this.
+      autoHideMenuBar: true,
       webPreferences: {
         session: sessionFor(s),
         preload: path.join(here, "shell-preload.cjs"),
@@ -121,6 +125,7 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
             width: 520,
             height: 720,
             parent: w,
+            autoHideMenuBar: true,
             webPreferences: { session: sessionFor(s), contextIsolation: true, nodeIntegration: false, sandbox: true },
           },
         };

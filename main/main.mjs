@@ -692,6 +692,7 @@ async function openStores() {
     height: 520,
     title: "SageFin Desktop",
     icon: ICON,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(here, "preload.cjs"),
       contextIsolation: true,
@@ -797,6 +798,7 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
     height: 900,
     title: retailer.name,
     show,
+    autoHideMenuBar: true,
     // A window out of sight still has to load its pages at full speed.
     webPreferences: { session: ses, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
