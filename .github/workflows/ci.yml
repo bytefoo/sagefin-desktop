@@ -42,6 +42,30 @@ jobs:
           fi
           exit $status
 
+  # Every file that starts `// @ts-check` is checked against the types its comments declare. The
+  # editor already does this as the code is written; this is what stops a change that breaks one
+  # being merged.
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      # Electron's types come with its package; its own download is not needed to read them.
+      - run: npm ci --ignore-scripts
+      # The count is checked because a check of no files passes.
+      - name: Check types
+        run: |
+          checked=$(git grep -l '^// @ts-check' -- '*.mjs' '*.cjs' '*.js' | wc -l)
+          echo "$checked files opt in"
+          if [ "$checked" -eq 0 ]; then
+            echo "::error::no file starts with // @ts-check: the step checked nothing"
+            exit 1
+          fi
+          npm run typecheck
+
   # The readers of a store's page, run against pages nobody wrote. Apart from `test` because
   # fast-check has to be installed, and `test` proves lib/ needs nothing installed.
   fuzz:

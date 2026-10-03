@@ -319,6 +319,13 @@ npm test
 CI runs the same tests on every push and pull request.
 
 ```bash
+npm run typecheck
+```
+
+checks the files that start `// @ts-check` against the types their comments declare. CI runs it
+too. Nothing is compiled; the app runs the JavaScript as written.
+
+```bash
 npm run fuzz
 ```
 
