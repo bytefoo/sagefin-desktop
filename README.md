@@ -368,6 +368,13 @@ the real site, so opening a retailer from the web app can be exercised without l
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
 page's own requests is exercised.
 
+`SAGEFIN_DESKTOP_SCHEDULE_EVERY_MINUTES=<n>` makes a scheduled sync due that many minutes after the
+last finished one, where an installed app waits a day. It exists so the scheduled run can be watched
+happening. The app still looks a minute after it starts and hourly after that, so set it and
+restart: a retailer whose last sync finished longer ago than that runs at the first look. It is a
+real sync of a real retailer, so use it once and take the setting off again. An installed app
+ignores it.
+
 A stand-in page is still a retailer's as far as the app's gate goes: saving and syncing wait for
 the choice, as they do for the real one.
 
