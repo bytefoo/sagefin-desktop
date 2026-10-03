@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+      # lib/ imports nothing from Electron, so the tests run before anything is installed. The
+      # count is checked because a glob that matches nothing exits 0 having run nothing.
+      - name: Test
+        run: |
+          files=$(find lib -name '*.test.mjs' | wc -l)
+          out=$(node --test --test-reporter=tap "lib/*.test.mjs") && status=0 || status=$?
+          echo "$out" | tail -12
+          ran=$(echo "$out" | sed -n 's/^# tests //p')
+          if [ "$files" -eq 0 ] || [ "${ran:-0}" -eq 0 ]; then
+            echo "::error::$files test files, ${ran:-0} tests ran: the step checked nothing"
+            exit 1
+          fi
+          exit $status
+
+  # The same packaging a release does, without an installer and without publishing, so a change
+  # that breaks the build is found on its pull request and not on a tag.
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run pack
+      - name: Tests are not shipped, and the app's own files are
+        run: |
+          npx asar list dist/linux-unpacked/resources/app.asar > packed.txt
+          grep -q '^/main/main.mjs$' packed.txt
+          grep -q '^/build/icon.png$' packed.txt
+          ! grep -q '\.test\.mjs$' packed.txt

@@ -1,0 +1,13 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      electron-builder:
+        patterns: ["electron-builder*", "app-builder-*", "dmg-builder"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

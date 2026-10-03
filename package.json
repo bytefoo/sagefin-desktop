@@ -1,0 +1,71 @@
+{
+  "name": "sagefin-desktop",
+  "productName": "SageFin Desktop",
+  "version": "0.1.0",
+  "description": "SageFin as a desktop app: the web app in a window, and store order pages saved from the member's own computer.",
+  "type": "module",
+  "main": "main/main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"lib/*.test.mjs\"",
+    "pack": "electron-builder --dir --publish never",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Derek Beattie"
+  },
+  "homepage": "https://github.com/bytefoo/sagefin-desktop",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bytefoo/sagefin-desktop.git"
+  },
+  "build": {
+    "appId": "app.sagefin.desktop",
+    "productName": "SageFin Desktop",
+    "files": [
+      "main/**",
+      "lib/**",
+      "renderer/**",
+      "build/icon.png",
+      "build/icon-mac.png",
+      "!lib/*.test.mjs"
+    ],
+    "artifactName": "SageFin-Desktop-${version}-${os}-${arch}.${ext}",
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.finance",
+      "icon": "build/icon-mac.png",
+      "identity": "-",
+      "hardenedRuntime": false
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Finance",
+      "icon": "build/icon.png"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bytefoo",
+        "repo": "sagefin-desktop",
+        "releaseType": "draft"
+      }
+    ]
+  }
+}

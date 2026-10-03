@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SageFin Desktop</title>
+    <link rel="stylesheet" href="home.css" />
+  </head>
+  <body>
+    <main>
+      <header class="brand">
+        <img src="logo.png" alt="" />
+        <h1>SageFin Desktop</h1>
+      </header>
+      <p class="lede">
+        Open a store, sign in as you normally would, and look at your orders. Each orders page you
+        open is saved on this computer.
+      </p>
+      <p id="cannot-save" class="alert-danger" hidden>
+        This computer cannot protect saved data, so nothing will be saved.
+      </p>
+      <ul id="retailers" class="card" aria-label="Stores"></ul>
+      <p class="fine">
+        SageFin Desktop only reads the orders pages you open yourself. It does not browse, click or
+        sign in for you. Saved pages are sent to SageFin once this computer is connected, in
+        Settings, under Retail sync.
+      </p>
+    </main>
+    <script src="home.js"></script>
+  </body>
+</html>
