@@ -11,7 +11,7 @@ import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStora
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { HIDDEN_ARG, canOpenAtLogin, closeAction, createPreferences, startsHidden } from "../lib/background.mjs";
+import { HIDDEN_ARG, canOpenAtLogin, closeAction, createPreferences, startsHidden, trayClickOpensWindow } from "../lib/background.mjs";
 import { createCaptureStore } from "../lib/capture-store.mjs";
 import { CONSENT_KINDS, allowed, createConsents, maySync, needsChoice, standingAnswer } from "../lib/consent.mjs";
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
@@ -381,6 +381,8 @@ function openTray() {
     const icon = new Tray(nativeImage.createFromPath(ICON).resize({ width: size, height: size }));
     icon.setToolTip(versionLabel(RUNNING_VERSION));
     icon.setContextMenu(trayMenu());
+    // A double click arrives as a click first, so the one handler answers both.
+    if (trayClickOpensWindow(process.platform)) icon.on("click", () => main?.show());
     return icon;
   } catch {
     return null;
