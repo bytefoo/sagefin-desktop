@@ -1056,6 +1056,9 @@ function status() {
   return {
     canSave: Boolean(store),
     connected: Boolean(credentials?.get(site.key)),
+    // Which of the member's connected computers this one is. The credential's id, never its secret:
+    // SageFin lists the id in Settings, and the page needs it to mark this computer in that list.
+    tokenId: credentials?.get(site.key)?.tokenId ?? null,
     sending: uploading,
     uploadNotice,
     retailers: RETAILERS.map((r) => {
