@@ -185,8 +185,7 @@ async function start() {
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(DOCK_ICON));
 
   preferences = createPreferences({ dir: path.join(dir, "..") });
-  tray = openTray();
-  applyLoginItem();
+  // Before the tray: its menu asks whether this copy can update itself, and is built once here.
   updates = startUpdates({
     syncing: () => syncing.size,
     onChanged: () => tray?.setContextMenu(trayMenu()),
@@ -194,6 +193,8 @@ async function start() {
       quitting = true;
     },
   });
+  tray = openTray();
+  applyLoginItem();
 
   main = openShell({
     site,
