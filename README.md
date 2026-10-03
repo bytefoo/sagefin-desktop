@@ -74,17 +74,19 @@ are the site's own, and a web deploy changes the app's interface too.
 - **A script's pop-up gets a plain window.** That is how a bank's sign-in arrives during account
   linking. It has no preload, so no bridge.
 - **The bridge is small and says nothing a retailer's page said.** `window.sagefinDesktop.info()`
-  tells the web app it is running in the desktop app and what the app can do; `stores()` lists
-  each retailer with how many pages are saved here; `openStore(code)` opens one; `onStoresChanged`
+  tells the web app it is running in the desktop app and what the app can do; `retailers()` lists
+  each retailer with how many pages are saved here; `openRetailer(code)` opens one; `onRetailersChanged`
   says when to ask again. Names, counts and times only — a saved page's contents never cross it.
   It exists only on a SageFin origin, and the main process checks the caller's frame and origin
-  again before answering. Settings → Retail sync in the web app is where it shows.
+  again before answering. Settings → Retail sync in the web app is where it shows. The same calls
+  also answer under their older names (`stores()`, `openStore`, `syncStore`, `onStoresChanged`),
+  for a web app that has not yet changed to the new ones.
 - **If the site cannot be reached**, a local page says so and offers to try again.
 
 A development run can open another site: `SAGEFIN_DESKTOP_SITE=test npm start`, or the Develop
 menu. A packaged app opens production. Each site has its own browser profile.
 
-The stores window (Stores → Stores on This Computer) is the app's own page: what is saved here,
+The retailers window (Retailers → Retailers on This Computer) is the app's own page: what is saved here,
 and a button to open each retailer.
 
 ## Running in the background
@@ -97,7 +99,7 @@ leaves the app running (`lib/background.mjs`). The rules:
   has no tray and no Dock, closing the window closes the app, as before: a hidden window nothing
   can show would be an app nobody can see or quit.
 - **It says so once.** The first close that leaves the app running shows a notification.
-- **It is a choice.** Stores → Keep Running When the Window Is Closed, on by default, also in the
+- **It is a choice.** Retailers → Keep Running When the Window Is Closed, on by default, also in the
   tray menu. Quit always quits.
 - **It says which version is running.** The icon's tooltip and the first line of its menu carry
   the version, since the app can run for weeks with its window closed. Run from source, that line
@@ -239,7 +241,7 @@ at all. Once SageFin holds it, the copy here is removed.
   busy or failing server and no connection end the run and keep everything; any other refusal is
   about that one page, which stays while the rest go.
 - **A page is filed under the SageFin the app was showing** when it was saved, and is sent only
-  there. A stand-in page (`SAGEFIN_DESKTOP_STORE_FIXTURE`) is only ever sent to a local SageFin.
+  there. A stand-in page (`SAGEFIN_DESKTOP_RETAILER_FIXTURE`) is only ever sent to a local SageFin.
 
 This does not put saving the data inside a retailer's terms of use. Walmart's prohibit storing
 order data with any "manual or automatic device". It is the least a tool can do and still be useful.
@@ -271,13 +273,13 @@ address to resume at; the fingerprints make reading them again cheap.
 
 | Path | What |
 |---|---|
-| `main/main.mjs` | The main process: the stores window, one window per retailer, reading a loaded page |
+| `main/main.mjs` | The main process: the retailers window, one window per retailer, reading a loaded page |
 | `main/shell.mjs` | The main window: loads the site and carries out `lib/site.mjs`'s decisions |
 | `main/shell-preload.cjs` | The main window's bridge to the web app, on SageFin origins only |
 | `build/` | The app icons a development run shows, and `make-icons.py`, which builds them from the logo. macOS gets its own (`icon-mac.png`): the Dock draws an icon as given, so it carries the rounded shape and margin |
-| `main/preload.cjs` | The stores window's only bridge: `status`, `open`, `onChanged` |
+| `main/preload.cjs` | The retailers window's only bridge: `status`, `open`, `onChanged` |
 | `lib/site.mjs` | Which origins are SageFin, and where a navigation or a new window goes |
-| `renderer/` | The stores window and the "could not be reached" page, in the web app's own colours and type. No Node, no Electron, a strict CSP |
+| `renderer/` | The retailers window and the "could not be reached" page, in the web app's own colours and type. No Node, no Electron, a strict CSP |
 | `lib/retailers.mjs` | Per retailer: which pages to save, its robot check, its signed-out page |
 | `lib/capture-store.mjs` | Captures on disk: one sealed payload and one record each |
 | `lib/credential-store.mjs` | The upload-only token, sealed, one per site |
@@ -349,7 +351,7 @@ anywhere but the retailer over https, and that an order a list names is only eve
 retailer's own order page. It needs `npm ci` first; `npm test` needs nothing installed. CI runs it
 too.
 
-`SAGEFIN_DESKTOP_STORE_FIXTURE=<file.html>` makes every retailer's window open that local page instead of
+`SAGEFIN_DESKTOP_RETAILER_FIXTURE=<file.html>` makes every retailer's window open that local page instead of
 the real site, so opening a retailer from the web app can be exercised without loading one. It may
 also be a page a local server is serving (`http://localhost:<port>/…`), which is how reading a
 page's own requests is exercised.

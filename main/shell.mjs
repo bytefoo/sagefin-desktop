@@ -23,8 +23,8 @@ function openInBrowser(url) {
 /**
  * @param {object} options
  * @param {import("../lib/site.mjs").Site} options.site
- * @param {() => void} options.onStores  Opens the stores window.
- * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.stores
+ * @param {() => void} options.onRetailers  Opens the retailers window.
+ * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.retailers
  *   What is saved on this computer, and opening a retailer's window. Counts and names only: a
  *   saved page's contents never cross the bridge.
  * @param {{ connect: (credential: unknown) => boolean, disconnect: () => string | null }} options.account
@@ -37,10 +37,10 @@ function openInBrowser(url) {
  * @param {() => "hide" | "close"} options.background.closeAction  What closing the window does now.
  * @param {() => void} options.background.onHidden  Called when a close hid the window instead.
  * @param {() => Electron.MenuItemConstructorOptions[]} options.background.menuItems
- *   The member's background choices, for the Stores menu. Asked for each time the menu is built.
+ *   The member's background choices, for the Retailers menu. Asked for each time the menu is built.
  * @returns {{ window: BrowserWindow, switchSite: (site: import("../lib/site.mjs").Site) => void, changed: () => void, show: () => void, refreshMenu: () => void }}
  */
-export function openShell({ site: initialSite, onStores, stores, account, onSite, icon, background }) {
+export function openShell({ site: initialSite, onRetailers, retailers, account, onSite, icon, background }) {
   let site = initialSite;
 
   /** @param {import("../lib/site.mjs").Site} s */
@@ -66,18 +66,18 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
 
   ipcMain.handle("shell:info", (event) =>
     fromSite(event)
-      ? { app: "sagefin-desktop", version: app.getVersion(), platform: process.platform, capabilities: ["stores", "upload", "sync", "consent"] }
+      ? { app: "sagefin-desktop", version: app.getVersion(), platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent"] }
       : null,
   );
-  ipcMain.handle("shell:stores", (event) => (fromSite(event) ? stores.status() : null));
-  ipcMain.handle("shell:open-store", (event, code) =>
-    fromSite(event) && typeof code === "string" ? stores.open(code) : false,
+  ipcMain.handle("shell:retailers", (event) => (fromSite(event) ? retailers.status() : null));
+  ipcMain.handle("shell:open-retailer", (event, code) =>
+    fromSite(event) && typeof code === "string" ? retailers.open(code) : false,
   );
-  ipcMain.handle("shell:sync-store", (event, code) =>
-    fromSite(event) && typeof code === "string" ? stores.sync(code) : false,
+  ipcMain.handle("shell:sync-retailer", (event, code) =>
+    fromSite(event) && typeof code === "string" ? retailers.sync(code) : false,
   );
   ipcMain.handle("shell:set-consent", (event, code, kind, answer) =>
-    fromSite(event) && typeof code === "string" ? stores.consent(code, kind, answer) : false,
+    fromSite(event) && typeof code === "string" ? retailers.consent(code, kind, answer) : false,
   );
   ipcMain.handle("shell:connect", (event, credential) => (fromSite(event) ? account.connect(credential) : false));
   ipcMain.handle("shell:disconnect", (event) => (fromSite(event) ? account.disconnect() : null));
@@ -196,9 +196,9 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
         submenu: [{ role: "reload" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }],
       },
       {
-        label: "Stores",
+        label: "Retailers",
         submenu: [
-          { label: "Stores on This Computer…", accelerator: "CmdOrCtrl+Shift+S", click: onStores },
+          { label: "Retailers on This Computer…", accelerator: "CmdOrCtrl+Shift+S", click: onRetailers },
           { type: "separator" },
           ...background.menuItems(),
         ],
@@ -244,7 +244,7 @@ export function openShell({ site: initialSite, onStores, stores, account, onSite
     },
     /** Tells the page that what is saved here has changed, so it asks again. */
     changed() {
-      if (!win.isDestroyed()) win.webContents.send("shell:stores-changed");
+      if (!win.isDestroyed()) win.webContents.send("shell:retailers-changed");
     },
   };
 }

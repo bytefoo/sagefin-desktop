@@ -2,7 +2,7 @@
   "name": "sagefin-desktop",
   "productName": "SageFin Desktop",
   "version": "0.1.0",
-  "description": "SageFin as a desktop app: the web app in a window, and store order pages saved from the member's own computer.",
+  "description": "SageFin as a desktop app: the web app in a window, and retailer order pages saved from the member's own computer.",
   "type": "module",
   "main": "main/main.mjs",
   "scripts": {

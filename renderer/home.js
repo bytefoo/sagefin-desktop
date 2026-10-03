@@ -25,15 +25,15 @@ async function render() {
       avatar.setAttribute("aria-hidden", "true");
       avatar.textContent = retailer.name.slice(0, 1).toUpperCase();
 
-      const store = document.createElement("div");
-      store.className = "store";
+      const label = document.createElement("div");
+      label.className = "retailer";
       const name = document.createElement("div");
-      name.className = "store-name";
+      name.className = "retailer-name";
       name.textContent = retailer.name;
       const detail = document.createElement("div");
-      detail.className = "store-detail";
+      detail.className = "retailer-detail";
       detail.textContent = describe(retailer);
-      store.append(name, detail);
+      label.append(name, detail);
 
       const button = document.createElement("button");
       button.type = "button";
@@ -41,7 +41,7 @@ async function render() {
       button.textContent = retailer.open ? `Show ${retailer.name}` : `Open ${retailer.name}`;
       button.addEventListener("click", () => window.desktop.open(retailer.code));
 
-      item.append(avatar, store, button);
+      item.append(avatar, label, button);
       return item;
     }),
   );

@@ -1,6 +1,6 @@
 # Security
 
-SageFin Desktop holds store sign-ins on your computer and sends saved order pages to SageFin, so a
+SageFin Desktop holds retailer sign-ins on your computer and sends saved order pages to SageFin, so a
 flaw here matters.
 
 ## Reporting a vulnerability
@@ -34,8 +34,8 @@ app updates itself to it.
 
 - Anything that lets a page other than SageFin's reach the app's bridge, a saved page, or the
   upload token.
-- Anything that sends a saved page, a store sign-in or the token anywhere but the SageFin site it
+- Anything that sends a saved page, a retailer sign-in or the token anywhere but the SageFin site it
   was saved under.
-- Anything that makes the app load or act on a store's pages beyond what the readme says it does.
+- Anything that makes the app load or act on a retailer's pages beyond what the readme says it does.
 
 A problem in SageFin's servers or web app is not in this repository, but report it the same way.
