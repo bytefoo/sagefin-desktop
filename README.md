@@ -3,6 +3,7 @@
 [![ci](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml)
 [![codeql](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/bytefoo/sagefin-desktop/badge)](https://scorecard.dev/viewer/?uri=github.com/bytefoo/sagefin-desktop)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/15189/badge)](https://www.bestpractices.dev/projects/15189)
 [![latest release](https://img.shields.io/github/v/release/bytefoo/sagefin-desktop)](https://github.com/bytefoo/sagefin-desktop/releases/latest)
 [![licence: MIT](https://img.shields.io/github/license/bytefoo/sagefin-desktop)](LICENSE)
 
@@ -411,6 +412,11 @@ What is checked, and where to see it:
   scores it weekly and on every push to `main`, on things such as branch protection, pinned
   dependencies and workflow permissions. The score in the badge above is theirs, not ours, and
   each check behind it can be read there.
+- **What the project says of itself.** The
+  [OpenSSF Best Practices](https://www.bestpractices.dev/projects/15189) badge is a questionnaire
+  the maintainer answers, on how changes, reports, tests and releases are handled. Each answer
+  and the evidence given for it can be read there. It is self-certified: nobody else has checked
+  it, which is what the Scorecard above is for.
 - **Where a download was built.** Releases from the one after v0.1.19 carry a signed build
   provenance: a statement, recorded by GitHub and attached to the release as
   `provenance-<system>.intoto.jsonl`, that the file was built by this repository's
