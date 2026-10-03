@@ -58,6 +58,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: write
+      id-token: write # The provenance below is signed with this run's own identity.
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
@@ -75,6 +77,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --publish always
+      # A signed statement that these exact files were built by this workflow, from this commit of
+      # this repository. It is not code signing: the systems' first-run warnings are unchanged. It
+      # is what lets anyone check a download with `gh attestation verify`, as the readme shows.
+      - name: Attest where the files were built
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/SageFin-Desktop-*.dmg
+            dist/SageFin-Desktop-*.zip
+            dist/SageFin-Desktop-*.exe
+            dist/SageFin-Desktop-*.AppImage
+      # Attached as well as recorded by GitHub, so the proof travels with the release.
+      - name: Attach the provenance to the draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.draft.outputs.version }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          cp "$BUNDLE" "provenance-${{ runner.os }}.intoto.jsonl"
+          gh release upload "$TAG" "provenance-${{ runner.os }}.intoto.jsonl" --clobber
 
   # What a person downloading a file can check it against.
   checksums:
