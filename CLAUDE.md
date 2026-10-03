@@ -21,6 +21,16 @@ rule, not a coincidence. Logic that can be decided without Electron goes in `lib
 `main/` only carries the decisions out.
 
 ```bash
+npm run fuzz
+```
+
+runs `fuzz/*.fuzz.js`: the same readers against generated pages and addresses, with fast-check,
+which does have to be installed (`npm ci`). That is why they are not in `lib/`. A property there is
+a promise the readme makes, held for any input; when one fails, fast-check prints the smallest
+input that breaks it, and that input becomes an example in the matching `lib/*.test.mjs` with the
+fix. The files end `.js`, not `.mjs`, because OpenSSF Scorecard only looks for fuzzing in `.js`.
+
+```bash
 npm start
 ```
 

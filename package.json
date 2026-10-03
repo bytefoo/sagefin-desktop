@@ -9,11 +9,13 @@
     "start": "electron .",
     "test": "node --test \"lib/*.test.mjs\"",
     "pack": "electron-builder --dir --publish never",
-    "dist": "electron-builder --publish never"
+    "dist": "electron-builder --publish never",
+    "fuzz": "node --test \"fuzz/*.fuzz.js\""
   },
   "devDependencies": {
     "electron": "^44.5.1",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "fast-check": "^4.10.2"
   },
   "license": "MIT",
   "author": {
