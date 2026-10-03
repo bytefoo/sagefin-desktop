@@ -1,5 +1,10 @@
 # SageFin Desktop
 
+[![ci](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/ci.yml)
+[![codeql](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/bytefoo/sagefin-desktop/actions/workflows/codeql.yml)
+[![latest release](https://img.shields.io/github/v/release/bytefoo/sagefin-desktop)](https://github.com/bytefoo/sagefin-desktop/releases/latest)
+[![licence: MIT](https://img.shields.io/github/license/bytefoo/sagefin-desktop)](LICENSE)
+
 [SageFin](https://sagefin.app) as a desktop app. Its main window is the real web app, loaded from
 the site, so a member can use it instead of a browser. Beside that, it does the one thing a browser
 tab cannot: it opens a store in its own window, the member signs in there themselves, and it saves
@@ -21,7 +26,7 @@ early test builds and **are not code-signed yet**, so each system warns about th
 
 | System | File | First run |
 |---|---|---|
-| macOS | `.dmg` | Open it once, then System Settings → Privacy & Security → Open Anyway |
+| macOS (Apple Silicon) | `.dmg` | Open it once, then System Settings → Privacy & Security → Open Anyway |
 | Windows | `Setup.exe` | "Windows protected your PC" → More info → Run anyway |
 | Linux | `.AppImage` | Mark it executable and run it |
 
@@ -266,6 +271,18 @@ all three systems and attaches them to a draft release.
 ## Security
 
 Please report a vulnerability privately, as [SECURITY.md](SECURITY.md) describes, not in an issue.
+
+What is checked, and where to see it:
+
+- **Code scanning.** [CodeQL](.github/workflows/codeql.yml) runs on every pull request, every push
+  to `main` and weekly. The `codeql` badge above is its last run on `main`; a pull request cannot
+  merge with it failing. GitHub shows the individual findings only to maintainers.
+- **Secrets.** GitHub secret scanning is on, with push protection: a push containing a recognised
+  credential is refused.
+- **Dependencies.** Dependabot raises an alert, and a pull request, for a dependency with a known
+  vulnerability. The app ships one dependency, Electron itself; everything else is build tooling.
+- **Releases.** Built only by the [release workflow](.github/workflows/release.yml) from a version
+  tag only a maintainer can create, on GitHub's own runners, with each file's SHA-256 in the notes.
 
 ## Licence
 
