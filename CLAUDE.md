@@ -21,6 +21,15 @@ rule, not a coincidence. Logic that can be decided without Electron goes in `lib
 `main/` only carries the decisions out.
 
 ```bash
+npm run typecheck
+```
+
+checks every file that starts `// @ts-check` against the types its comments declare, strictly
+(`tsconfig.json`). Nothing is compiled: the app runs the JavaScript as written. A file without the
+comment is not checked, which today is most tests, the two preloads and the renderer scripts. A
+new file in `lib/` or `main/` starts with it.
+
+```bash
 npm run fuzz
 ```
 
