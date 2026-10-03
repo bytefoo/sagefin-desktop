@@ -265,8 +265,12 @@ npm run pack
 ```
 
 builds the app for this computer into `dist/` without making an installer, and `npm run dist` makes
-the installer. A release is a tag: pushing `v<version>` runs the release workflow, which builds
-all three systems and attaches them to a draft release.
+the installer.
+
+A release is made by running the release workflow by hand on `main`. It builds all three systems
+and attaches them to a draft release, which a maintainer publishes. Versions number themselves:
+`<major>.<minor>` from `package.json`, and the number of commits on `main` as the patch, so every
+merge is a new version. Change `package.json` only to start a new minor or major.
 
 ## Security
 
