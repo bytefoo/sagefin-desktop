@@ -26,6 +26,9 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     syncRetailer: (code) => ipcRenderer.invoke("shell:sync-retailer", code),
     // Records the member's answer about one thing at one retailer: saving its pages, or syncing it.
     setConsent: (code, kind, answer) => ipcRenderer.invoke("shell:set-consent", code, kind, answer),
+    // Names the account the member is signed in to at a retailer whose pages do not say. A label
+    // they chose; nothing read from a page. Null takes it away.
+    setAccountName: (code, name) => ipcRenderer.invoke("shell:set-account-name", code, name),
     // Takes the upload-only token the signed-in page minted. Nothing secret ever comes back.
     connect: (credential) => ipcRenderer.invoke("shell:connect", credential),
     disconnect: () => ipcRenderer.invoke("shell:disconnect"),
