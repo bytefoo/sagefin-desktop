@@ -51,4 +51,19 @@ jobs:
           npx asar list dist/linux-unpacked/resources/app.asar > packed.txt
           grep -q '^/main/main.mjs$' packed.txt
           grep -q '^/build/icon.png$' packed.txt
+          # The updater is the one library the app ships; without it the packaged app fails to start.
+          grep -q '^/node_modules/electron-updater/package.json$' packed.txt
           ! grep -q '\.test\.mjs$' packed.txt
+      # Packaging can succeed and the app still not start: a library left out of the package, or
+      # one that cannot be imported, only fails when the app runs. Start it for a few seconds;
+      # `timeout` exiting 124 means it was still running when stopped, which is the pass.
+      - name: The packaged app starts
+        run: |
+          ls dist/linux-unpacked | head -20
+          code=0
+          timeout 15 xvfb-run -a dist/linux-unpacked/sagefin-desktop --no-sandbox > run.log 2>&1 || code=$?
+          tail -20 run.log
+          if [ "$code" -ne 124 ]; then
+            echo "::error::the packaged app exited by itself with code $code"
+            exit 1
+          fi

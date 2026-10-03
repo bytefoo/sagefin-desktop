@@ -17,8 +17,10 @@ import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { RETAILERS, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
+import { updateMenuItem } from "../lib/updates.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
+import { startUpdates } from "./updates.mjs";
 
 const here = import.meta.dirname;
 const HOME = pathToFileURL(path.join(here, "..", "renderer", "index.html")).href;
@@ -63,6 +65,8 @@ const syncing = new Map();
 let preferences = null;
 /** The menu bar or system tray icon, where the desktop has one. @type {Tray | null} */
 let tray = null;
+/** Looking for, and installing, a newer version. @type {ReturnType<typeof startUpdates> | null} */
+let updates = null;
 /** Set once the member has asked to quit, so closing the window closes it. */
 let quitting = false;
 /** One open window per retailer. @type {Map<string, BrowserWindow>} */
@@ -133,6 +137,13 @@ async function start() {
   preferences = createPreferences({ dir: path.join(dir, "..") });
   tray = openTray();
   applyLoginItem();
+  updates = startUpdates({
+    syncing: () => syncing.size,
+    onChanged: () => tray?.setContextMenu(trayMenu()),
+    beforeRestart: () => {
+      quitting = true;
+    },
+  });
 
   main = openShell({
     site,
@@ -259,9 +270,17 @@ function applyLoginItem() {
 }
 
 function trayMenu() {
+  // A downloaded update: offered here because the app may otherwise run for weeks without quitting.
+  const update = updateMenuItem({ version: updates?.downloaded() ?? null, syncing: syncing.size });
   return Menu.buildFromTemplate([
     { label: "Open SageFin", click: () => main?.show() },
     { label: "Stores on This Computer…", click: () => void openStores() },
+    ...(update
+      ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([
+          { type: "separator" },
+          { label: update.label, enabled: update.enabled, click: () => void updates?.restart() },
+        ])
+      : []),
     { type: "separator" },
     ...backgroundMenuItems(),
     { type: "separator" },
@@ -746,6 +765,8 @@ function tell(code, notice) {
 function changed() {
   home?.webContents.send("desktop:changed");
   main?.changed();
+  // The update line in the tray says whether a sync is in the way, so it follows syncs too.
+  if (updates?.downloaded()) tray?.setContextMenu(trayMenu());
 }
 
 /**

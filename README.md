@@ -39,8 +39,12 @@ them. A warning you are asked to click through is a reason to be careful: every 
 by the [release workflow](.github/workflows/release.yml) from this source, and you can check the
 file you downloaded against the SHA-256 on its release.
 
-The app opens SageFin, where you need an account. It does not update itself yet: install a newer
-build over the old one.
+The app opens SageFin, where you need an account.
+
+**Updates.** On Windows and Linux the app updates itself: it downloads a new version in the
+background and installs it the next time it quits, or sooner if you choose Restart to Update from
+the tray icon. On macOS it cannot yet, because macOS only updates an app signed with a Developer
+ID; download the new build and install it over the old one.
 
 ## Privacy and terms
 
@@ -152,7 +156,10 @@ Walmart and Amazon are the retailers the app supports today.
   - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
     Amazon sent it, with scripts, styles and images removed.
 - **Nothing on a retailer's page is wrapped, injected or changed.**
-- **Outside a sync it makes no request of its own.** It saves what the member's own browsing loads.
+- **Outside a sync it makes no request of its own to a retailer or to SageFin.** It saves what the
+  member's own browsing loads. The one request it does make by itself is to GitHub, a few times a
+  day, to ask whether this repository has published a newer version (`lib/updates.mjs`). That
+  fetches a small public file and sends nothing about the member, their account or their orders.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. On Amazon it also presses the payments list's own Next button, because that
   list has no address for its later pages. It never signs in, fills in a form, changes anything in
@@ -228,9 +235,19 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
+| `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
+| `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
 
 `lib/` imports nothing from Electron, so its tests run with nothing installed.
+
+## Updating itself
+
+The update feed is this repository's latest published release: the release workflow attaches a
+small manifest per system (`latest.yml`, `latest-linux.yml`) naming the version, the installer and
+its SHA-512, which the app checks the download against. An update is never installed during a
+sync; the tray says it is waiting. Until the builds are code-signed there is no signature to check
+beyond that hash, fetched over HTTPS from GitHub, and macOS does not update at all.
 
 ## How it looks
 
@@ -314,7 +331,8 @@ What is checked, and where to see it:
 - **Secrets.** GitHub secret scanning is on, with push protection: a push containing a recognised
   credential is refused.
 - **Dependencies.** Dependabot raises an alert, and a pull request, for a dependency with a known
-  vulnerability. The app ships one dependency, Electron itself; everything else is build tooling.
+  vulnerability. The app ships two dependencies, Electron itself and `electron-updater`; everything
+  else is build tooling.
 - **Releases.** Built and published only by the [release workflow](.github/workflows/release.yml),
   which only a maintainer can start, on GitHub's own runners, with each file's SHA-256 in the
   notes. A version tag, once created, cannot be moved or deleted except by a maintainer, so a
