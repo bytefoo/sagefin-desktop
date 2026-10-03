@@ -340,7 +340,7 @@ address to resume at; the fingerprints make reading them again cheap.
 The update feed is this repository's latest published release: the release workflow attaches a
 small manifest per system (`latest.yml`, `latest-linux.yml`) naming the version, the installer and
 its SHA-512, which the app checks the download against. The app looks once an hour while it runs;
-Check for Updates on the tray icon looks now, and says what it found. An update is never installed
+Check for Updates, on the tray icon and in the Retailers menu, looks now, and says what it found. An update is never installed
 during a sync; the tray says it is waiting. Until the builds are code-signed there is no signature to check
 beyond that hash, fetched over HTTPS from GitHub, and macOS does not update at all.
 
