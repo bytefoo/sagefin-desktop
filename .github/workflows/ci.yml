@@ -20,6 +20,14 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
+      # `node_modules/` in .gitignore matches a folder and not a link, so a link named node_modules
+      # was once committed, and pulling it replaced a real folder with a link to itself.
+      - name: Nothing installed is committed
+        run: |
+          if git ls-files --error-unmatch node_modules dist >/dev/null 2>&1; then
+            echo "::error::node_modules or dist is tracked"
+            exit 1
+          fi
       # lib/ imports nothing from Electron, so the tests run before anything is installed. The
       # count is checked because a glob that matches nothing exits 0 having run nothing.
       - name: Test
