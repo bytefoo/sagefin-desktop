@@ -317,7 +317,8 @@ What is checked, and where to see it:
   vulnerability. The app ships one dependency, Electron itself; everything else is build tooling.
 - **Releases.** Built and published only by the [release workflow](.github/workflows/release.yml),
   which only a maintainer can start, on GitHub's own runners, with each file's SHA-256 in the
-  notes. Version tags can be created by that workflow and by maintainers, and by nobody else.
+  notes. A version tag, once created, cannot be moved or deleted except by a maintainer, so a
+  published version always points at the commit it was built from.
 
 ## Licence
 
