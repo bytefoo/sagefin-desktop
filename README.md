@@ -332,6 +332,13 @@ npm test
 CI runs the same tests on every push and pull request.
 
 ```bash
+npm run typecheck
+```
+
+checks the files that start `// @ts-check` against the types their comments declare. CI runs it
+too. Nothing is compiled; the app runs the JavaScript as written.
+
+```bash
 npm run fuzz
 ```
 
@@ -382,6 +389,14 @@ A release is made by running the release workflow by hand on `main`. It builds a
 and publishes the release once every build has succeeded. Versions number themselves:
 `<major>.<minor>` from `package.json`, and the number of commits on `main` as the patch, so every
 merge is a new version. Change `package.json` only to start a new minor or major.
+
+## Problems and changes
+
+Found a bug, or want something the app does not do? Open
+[an issue](https://github.com/bytefoo/sagefin-desktop/issues), with the version and your system.
+Please do not attach a saved page or a screenshot of your orders: issues are public.
+
+Pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) says what one needs.
 
 ## Security
 
