@@ -8,6 +8,7 @@
 // sync loads pages and does nothing else. The user agent is Electron's own and is not changed.
 
 import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStorage, session, Tray } from "electron";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { HIDDEN_ARG, canOpenAtLogin, closeAction, createPreferences, startsHidden } from "../lib/background.mjs";
@@ -20,7 +21,7 @@ import { resolveSite } from "../lib/site.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduledRunDue } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { updateMenuItem } from "../lib/updates.mjs";
-import { versionLabel } from "../lib/version.mjs";
+import { runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -28,6 +29,26 @@ import { startUpdates } from "./updates.mjs";
 const here = import.meta.dirname;
 const HOME = pathToFileURL(path.join(here, "..", "renderer", "index.html")).href;
 const ICON = path.join(here, "..", "build", "icon.png");
+
+/**
+ * How many commits the source the app is run from has: what a release cut from it would be
+ * numbered. Asked of git only in a run from source; undefined where git cannot say.
+ */
+function sourceCommitCount() {
+  try {
+    return execFileSync("git", ["rev-list", "--count", "HEAD"], {
+      cwd: path.join(here, ".."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 3000,
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/** The version this app reports about itself (lib/version.mjs). */
+const RUNNING_VERSION = runningVersion(app.getVersion(), app.isPackaged, app.isPackaged ? undefined : sourceCommitCount());
 // macOS draws a Dock icon exactly as given, so its icon carries its own rounded shape and margin.
 const DOCK_ICON = path.join(here, "..", "build", "icon-mac.png");
 
@@ -164,6 +185,7 @@ async function start() {
 
   main = openShell({
     site,
+    version: RUNNING_VERSION,
     icon: ICON,
     background: {
       hidden: startsHidden({
@@ -311,7 +333,7 @@ function trayMenu() {
   const update = updateMenuItem({ version: updates?.downloaded() ?? null, syncing: syncing.size });
   return Menu.buildFromTemplate([
     // Which version is running: the one place to read it when the window is closed.
-    { label: versionLabel(app.getVersion(), app.isPackaged), enabled: false },
+    { label: versionLabel(RUNNING_VERSION), enabled: false },
     { type: "separator" },
     { label: "Open SageFin", click: () => main?.show() },
     { label: "Retailers on This Computer…", click: () => void openRetailersWindow() },
@@ -337,7 +359,7 @@ function openTray() {
   try {
     const size = process.platform === "darwin" ? 18 : 16;
     const icon = new Tray(nativeImage.createFromPath(ICON).resize({ width: size, height: size }));
-    icon.setToolTip(versionLabel(app.getVersion(), app.isPackaged));
+    icon.setToolTip(versionLabel(RUNNING_VERSION));
     icon.setContextMenu(trayMenu());
     return icon;
   } catch {
@@ -450,7 +472,7 @@ async function checkInOnce() {
   const result = await checkIn({
     site: asked.origin,
     secret: credential.secret,
-    version: app.getVersion(),
+    version: RUNNING_VERSION,
     reports: RETAILERS.filter((r) => r.syncs).map((r) => report(r.code, states.get(asked.key, r.code))),
     fetch,
   });
