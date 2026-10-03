@@ -65,6 +65,10 @@ the same pull request.
 `lib/html.mjs`'s five strip patterns and `MAX_CAPTURE_BYTES` mirror the server. Its source is not
 here, so the tests pin them; changing either needs the matching server change.
 
+The patterns are `stripByPatterns`, which is the definition and is not what runs. `stripHtml` is
+what runs: the same removal, in time that grows with the page and not with its square. A test and
+a fuzz property hold the two to the same output, so a change to one is a change to both.
+
 ## Landing work
 
 Pull requests into `main`, squash-merged.

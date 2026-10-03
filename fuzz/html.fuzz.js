@@ -5,10 +5,39 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
-import { stripHtml } from "../lib/html.mjs";
+import { stripByPatterns, stripHtml } from "../lib/html.mjs";
 
-const PIECES = ["<script", "</script>", "<style", "</style>", "<svg", "</svg>", "<noscript", "</noscript>", "<!--", "-->", "<SCRIPT>", "</SCRIPT >", "<div>", ">", "<", " ", "\n"];
-const page = fc.array(fc.oneof(fc.constantFrom(...PIECES), fc.string()), { maxLength: 60 }).map((parts) => parts.join(""));
+const PIECES = [
+  "<script", "</script>", "<style", "</style>", "<svg", "</svg>", "<noscript", "</noscript>", "<!--", "-->",
+  "<SCRIPT>", "</SCRIPT >", "</ScRiPt>", "<Style ", "</STYLE>", "<scripts", "<svgs>", "</svg", "<!-", "--", "->", "-", "!",
+  "<scr", "ipt", "<sty", "le>", "</", "script>", "\u017F", "\u212A", "<div>", ">", "<", " ", "\n",
+];
+const anyPieces = fc.array(fc.oneof(fc.constantFrom(...PIECES), fc.string()), { maxLength: 60 }).map((parts) => parts.join(""));
+
+// Only openings and ends, a few at a time and in either case, so that blocks of different kinds
+// overlap often: which kind is removed first only shows when they do.
+const TAGS = ["script", "style", "svg", "noscript"];
+const edge = fc.oneof(
+  fc.tuple(fc.constantFrom(...TAGS), fc.boolean(), fc.boolean(), fc.constantFrom(">", " ", "s>")).map(([tag, end, upper, after]) => {
+    const name = upper ? tag.toUpperCase() : tag;
+    return end ? `</${name}>` : `<${name}${after}`;
+  }),
+  fc.constantFrom("<!--", "-->", "x"),
+);
+const overlapping = fc.array(edge, { maxLength: 8 }).map((parts) => parts.join(""));
+
+const page = fc.oneof(anyPieces, overlapping);
+
+// The five patterns are what SageFin's reader was proved against; the app runs a faster way of
+// doing the same. Whatever the page, the two agree.
+test("what the app runs removes exactly what the five patterns do", () => {
+  fc.assert(
+    fc.property(fc.oneof(page, fc.string({ unit: "binary" })), (html) => {
+      assert.equal(stripHtml(html), stripByPatterns(html));
+    }),
+    { numRuns: 20000 },
+  );
+});
 
 test("a stripped page is never longer, and nothing makes stripping throw", () => {
   fc.assert(
