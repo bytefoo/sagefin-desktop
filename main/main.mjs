@@ -19,7 +19,7 @@ import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
+import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
@@ -1198,7 +1198,7 @@ function syncStatus(code) {
     // Nor is it promised while the member's choice is missing or withdrawn.
     // Nor while another of the member's computers has it, or a retailer turned one of them away.
     scheduled:
-      Boolean(state?.lastFinishedAt) && !state?.refusedAt && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)),
+      Boolean(state?.lastFinishedAt) && !(state && scheduleStopped(state)) && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)),
   };
 }
 
