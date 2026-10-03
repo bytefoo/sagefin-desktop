@@ -66,14 +66,6 @@
         "repo": "sagefin-desktop",
         "releaseType": "draft"
       }
-    ],
-    "protocols": [
-      {
-        "name": "SageFin Desktop",
-        "schemes": [
-          "sagefin-desktop"
-        ]
-      }
     ]
   },
   "dependencies": {
