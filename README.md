@@ -148,6 +148,12 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 - **It stops for a person.** On the retailer's robot check or a sign-in, the run ends and the window
   is shown. It never retries through either. Two order pages in a row that are not the order also
   end it.
+- **A sign-in page stops the schedule on that computer.** A run that meets the retailer's sign-in
+  page ends, shows the window, and is not repeated by the schedule: a run each hour that loads a
+  sign-in page and leaves is a pattern a retailer could fairly read as a robot's. The next run is
+  the member's own Sync now, once they have signed in. Unlike being turned away, this is the one
+  computer's: another of the member's computers that is still signed in carries on
+  (`scheduleStopped` in `lib/sync-plan.mjs`).
 - **Turned away is final until the member says otherwise.** A robot check (by address or by its
   content), or any page answered with a refusal status (Walmart's 412 and 418, Amazon's 503), ends the
   run and stops the daily schedule. The next run is the member's own Sync now; one of theirs that
