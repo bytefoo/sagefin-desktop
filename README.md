@@ -124,6 +124,12 @@ it has not already read in its present state, one at a time. Each page is saved 
 that saves it when the member opens it; the sync only does the opening, from the member's
 computer, in a window signed in by the member.
 
+That window shows while the sync runs when the member may be needed at it: the first sync of a
+retailer on a computer, and any sync after a run that did not reach its end. After a run that
+finished, the next Sync now works out of the way, as the daily sync does. The card says what it is
+doing, the window appears by itself if the retailer asks for a person, and Open shows it to anyone
+who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
+
 - **Slowly, and not many.** Five seconds between pages, at most ten pages of the orders list and
   twenty orders in a run (`lib/sync-plan.mjs`). A daily run usually reads one list page and opens
   none or one order.
