@@ -258,6 +258,20 @@ Walmart and Amazon are the retailers the app supports today.
   - *To GitHub, once an hour, and when you choose Check for Updates*, to ask whether this
     repository has published a newer version (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
+- **During a sync it asks SageFin which of the listed orders another of your computers has
+  already read** (`lib/read-orders.mjs`), so a second computer does not open ninety days of order
+  pages the first one opened. This is the one request, apart from sending the saved pages
+  themselves, that carries something taken from a page. What it carries is a key per order: a
+  SHA-256 over the retailer, the order number and the app's fingerprint of what the orders list
+  showed. No order number in the clear, no item, price, date or address. The key is not a secret
+  from SageFin, which already holds the order numbers in the pages this app sends it; it is there
+  so this request carries nothing else. The app sends the keys of the orders this computer has
+  read and the keys of the orders listed in front of it, and is told which of those it asked
+  about are known. Those it skips; an order that has changed since has a different key and is
+  opened again. SageFin answers only from computers of the same member on the same retailer
+  account. With no answer the app opens what its own record says to. One limit worth knowing: a
+  key says a computer *read* an order, not that the page has finished arriving at SageFin, so a
+  computer that read orders and then could not send them delays those orders until it can.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. Where a list has no address for its later pages it presses the list's own Next
   button: Purchase history's at Walmart, the payments list's at Amazon. It never signs in, fills in a form, changes anything in
@@ -337,6 +351,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
 | `lib/check-in.mjs` | The five-minute check-in with SageFin: what is sent, and what the answer permits |
+| `lib/read-orders.mjs` | Asking SageFin which listed orders another computer has read: the key sent per order, and what the answer skips |
 | `lib/consent.mjs` | The member's choices per retailer, and the gate they are |
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |

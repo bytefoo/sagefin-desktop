@@ -19,6 +19,7 @@ import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
+import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
 import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
@@ -775,6 +776,7 @@ async function runSync(retailer, { visible, by }) {
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
   const siteKey = site.key;
+  const siteOrigin = site.origin;
   const state = states.get(siteKey, retailer.code);
 
   const progress = (/** @type {string} */ text) => {
@@ -875,11 +877,39 @@ async function runSync(retailer, { visible, by }) {
     // as a person reaches it, and is saved by the same code that saves what a person opens.
     /** @type {import("../lib/retailers.mjs").ListedOrder[]} */
     const listed = [];
+    // What this computer has read is told to SageFin once a run, with the first question.
+    let toldSageFin = false;
+    /**
+     * Asks SageFin which of a list page's orders another of the member's computers has read, and
+     * remembers those as read here (lib/read-orders.mjs). With no answer, nothing changes.
+     * @param {import("../lib/retailers.mjs").ListedOrder[]} pageOrders
+     */
+    const learnWhatWasRead = async (pageOrders) => {
+      // A stand-in page is not an order.
+      if (retailerFixture && siteKey !== "local") return;
+      const credential = credentials?.get(siteKey);
+      if (!credential) return;
+      const asking = ordersToAskAbout(pageOrders, state.seen);
+      if (asking.length === 0 && toldSageFin) return;
+      const known = await shareRead({
+        site: siteOrigin,
+        secret: credential.secret,
+        retailer: retailer.code,
+        asked: asking.map((o) => orderKey(retailer.code, o.id, o.fingerprint)),
+        read: toldSageFin ? [] : readKeys(retailer.code, state.seen),
+        fetch,
+      });
+      if (known) toldSageFin = true;
+      if (adoptRead(retailer.code, pageOrders, state.seen, known) > 0) states.set(siteKey, retailer.code, state);
+    };
     let pageNumber = 1;
     let reachedEnd = false;
     for (let pagesRead = 1; ; pagesRead += 1) {
+      const pageOrders = listedOrders(list);
+      await learnWhatWasRead(pageOrders);
+      if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const step = readListPage({
-        pageOrders: listedOrders(list),
+        pageOrders,
         listed,
         seen: state.seen,
         caughtUp: state.caughtUp,
@@ -1044,6 +1074,14 @@ async function runSync(retailer, { visible, by }) {
       state.listedThroughPage = null;
     } else if (!state.caughtUp && !nextPageScript) {
       state.listedThroughPage = pageNumber > 1 ? pageNumber : null;
+    }
+
+    // What this run read, told now rather than at the next run's first question, so another
+    // computer that syncs before then does not read it again. Not waited for: it is never the
+    // reason a sync is slow to finish, and the next run says it all again.
+    const credential = read > 0 && !(retailerFixture && siteKey !== "local") ? credentials?.get(siteKey) : null;
+    if (credential) {
+      void shareRead({ site: siteOrigin, secret: credential.secret, retailer: retailer.code, asked: [], read: readKeys(retailer.code, state.seen), fetch });
     }
 
     finish(
