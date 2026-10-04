@@ -23,7 +23,7 @@ import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersTo
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
-import { runningVersion, versionLabel } from "../lib/version.mjs";
+import { UPDATE_SENTENCE, belowMinimum, runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -109,6 +109,12 @@ const notices = new Map();
  * @type {{ at: number, siteKey: string, answers: Record<string, import("../lib/check-in.mjs").Answer> } | null}
  */
 let lastCheckIn = null;
+/**
+ * The oldest app each SageFin lets sync by itself, by site, as its last check-in answer said. Kept
+ * for as long as the app runs: unlike an answer about whose turn it is, it does not go stale.
+ * @type {Map<string, string>}
+ */
+const minimumVersions = new Map();
 /**
  * What the member chose for when each retailer syncs by itself, by site and retailer, as SageFin
  * last said. Kept past the answer it came with: a choice does not lapse because SageFin has been
@@ -475,10 +481,20 @@ async function runScheduled() {
     if (!maySyncNow(retailer)) continue;
     // With no answer, the app runs as it would with nobody to ask.
     if (!scheduleAllowedBy(sagefinAnswer(retailer.code))) continue;
+    // Too old to share the daily sync as SageFin now runs it.
+    if (updateRequired()) continue;
     if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY, chosenSchedule(retailer.code))) {
       void runSync(retailer, { visible: false });
     }
   }
+}
+
+/**
+ * Whether this copy is older than the SageFin being shown lets sync by itself. Scheduled and
+ * requested syncs stop; Sync now, which the member starts and watches, does not.
+ */
+function updateRequired() {
+  return belowMinimum(RUNNING_VERSION, minimumVersions.get(site.key));
 }
 
 /** When the member wants a retailer to sync by itself, for the site being shown. @param {string} code */
@@ -541,6 +557,7 @@ async function checkInOnce() {
   if (result.status !== "answered") return;
 
   lastCheckIn = { at: Date.now(), siteKey: asked.key, answers: result.answers };
+  if (result.minimumVersion) minimumVersions.set(asked.key, result.minimumVersion);
   for (const [code, answer] of Object.entries(result.answers)) chosenSchedules.set(`${asked.key}:${code}`, answer.schedule ?? null);
   for (const retailer of RETAILERS) {
     // Only the retailers this app syncs, whatever the answer names. And not one that is syncing:
@@ -554,7 +571,7 @@ async function checkInOnce() {
 
     // A sync the member asked for from the web. It runs as a scheduled one does, out of the way,
     // and is theirs: they started it, though not from here. Only for the SageFin still on screen.
-    if (asked.key === site.key && shouldStartRequested(states.get(asked.key, retailer.code), answer, Date.now())) {
+    if (asked.key === site.key && !updateRequired() && shouldStartRequested(states.get(asked.key, retailer.code), answer, Date.now())) {
       void runSync(retailer, { visible: false, by: "member" });
     }
   }
@@ -1142,7 +1159,7 @@ function status() {
         captures: mine.length,
         lastCapturedAt: mine.at(-1)?.capturedAt ?? null,
         // With nothing of its own to say: why the daily sync is not running on this computer.
-        notice: notices.get(r.code) ?? waitingSentence(sagefinAnswer(r.code), r.name),
+        notice: notices.get(r.code) ?? (updateRequired() ? UPDATE_SENTENCE : waitingSentence(sagefinAnswer(r.code), r.name)),
         lastSentAt: lastSent.get(r.code)?.at ?? null,
         lastSent: lastSent.has(r.code) ? sentSummary(/** @type {import("../lib/uploader.mjs").SentTally} */ (lastSent.get(r.code))) : null,
         ...syncStatus(r.code),
@@ -1192,13 +1209,13 @@ function syncStatus(code) {
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
-    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) ? nextScheduledRunAt(state, SCHEDULE_EVERY, chosenSchedule(code)) : null,
+    nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) && !updateRequired() ? nextScheduledRunAt(state, SCHEDULE_EVERY, chosenSchedule(code)) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // retailer turned away. Saying "daily" then would promise a run that will not happen.
     // Nor is it promised while the member's choice is missing or withdrawn.
     // Nor while another of the member's computers has it, or a retailer turned one of them away.
     scheduled:
-      Boolean(state?.lastFinishedAt) && !(state && scheduleStopped(state)) && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)),
+      Boolean(state?.lastFinishedAt) && !(state && scheduleStopped(state)) && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) && !updateRequired(),
   };
 }
 

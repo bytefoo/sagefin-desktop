@@ -242,7 +242,10 @@ Walmart and Amazon are the retailers the app supports today.
     With no answer (offline, or a SageFin that does not know the question) the app syncs as it
     would with nobody to ask, and a "no" is only believed for fifteen minutes. The answer also carries when
     the member wants each retailer to sync by itself; a choice, unlike a "no", is remembered until
-    the app is next told otherwise or restarted.
+    the app is next told otherwise or restarted. And it carries the oldest version of the app
+    SageFin still lets sync by itself (`belowMinimum` in `lib/version.mjs`): a copy older than
+    that starts no scheduled sync and no requested one, says so beside each retailer, and leaves
+    Sync now working. A minimum the app cannot read stops nothing.
 - **SageFin can ask the app to start a sync, and only the member can make it ask.** The answer to a
   check-in may carry a sync the member asked for from the SageFin web app, signed in, by pressing
   Sync now beside this computer. The app runs it exactly as it runs a scheduled sync: out of the
