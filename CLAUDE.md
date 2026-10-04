@@ -62,7 +62,10 @@ The readme's "What it does, and what it deliberately does not" is the contract w
 and with the retailers' terms. In particular: no request of its own to a retailer outside a sync; exactly two requests of
 its own elsewhere, both listed in the readme and neither carrying anything from a page (the
 five-minute check-in with SageFin in `lib/check-in.mjs`, and the update check to GitHub), so a
-third, or a new field on the check-in, changes the readme in the same PR; the check-in's answer
+third, or a new field on the check-in, changes the readme in the same PR; during a sync, and only then,
+it asks SageFin which listed orders another of the member's computers has read
+(`lib/read-orders.mjs`), sending a SHA-256 per order and never an order number, a fingerprint or
+anything else from a page in the clear; the check-in's answer
 may start a sync the member asked for from the web, which runs as a scheduled one does and under
 the same conditions (`shouldStartRequested`), and may never carry anything else for the app to do; a sync only moves
 between pages (loading them, and pressing a list's own Next button where its later pages have no
