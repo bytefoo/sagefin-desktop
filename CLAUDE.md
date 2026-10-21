@@ -68,8 +68,9 @@ it asks SageFin which listed orders another of the member's computers has read
 anything else from a page in the clear; the check-in's answer
 may start a sync the member asked for from the web, which runs as a scheduled one does and under
 the same conditions (`shouldStartRequested`), and may never carry anything else for the app to do; a sync only moves
-between pages (loading them, and pressing a list's own Next button where its later pages have no
-address: Purchase history at Walmart, the payments list at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes
+between pages (loading them, and, where a list's later pages have no address, doing what a person
+does to see more: pressing Purchase history's own Next button at Walmart, scrolling the payments
+list to its end at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes
 whether the app acts, never how (`lib/consent.mjs`);
 it stops at a robot check or a refusal and does not retry; it never solves or asks the
 member to solve a check for an agent run; Amazon runs carry `Agent/SageFinDesktop`; a stand-in

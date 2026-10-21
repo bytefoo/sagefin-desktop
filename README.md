@@ -273,8 +273,9 @@ Walmart and Amazon are the retailers the app supports today.
   key says a computer *read* an order, not that the page has finished arriving at SageFin, so a
   computer that read orders and then could not send them delays those orders until it can.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
-  time and slowly. Where a list has no address for its later pages it presses the list's own Next
-  button: Purchase history's at Walmart, the payments list's at Amazon. It never signs in, fills in a form, changes anything in
+  time and slowly. Where a list has no address for its later pages it does what a person does to
+  see more: presses Purchase history's own Next button at Walmart, and at Amazon scrolls the
+  payments list to its end, which is what makes the list fetch more. It never signs in, fills in a form, changes anything in
   the account, or composes a request the retailer's page would not make itself.
 - **It does not disguise itself.** The user agent is Electron's own
   (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends
@@ -323,13 +324,14 @@ the pause between pages is the same for every retailer, there to keep load down,
 card encrypted, for Amazon's scripts to decrypt in the browser (seen on 2026-10-02). Reading the
 decrypted page would be going round a measure aimed at software that reads pages, which the Agent
 Terms rule out. Your Payments is not encrypted and lists each charge with its order and date, so a
-run opens it, then the details page of each order with a new or changed charge. It lists twenty
-charges a page, and its next page has no address. The Next Page button belongs to one of Amazon's
-payments widgets, whose own script takes the press, fetches the next twenty and replaces the list
-where it stands, without loading a page. So a run presses the button the way a person does, waits
-for the list on the page to change, and reads it there: the request is the page's own, under the
-run's marked user agent, never one the app composes. If that request is refused, the run stops
-and so does its schedule. How far back is the same rule as Walmart's,
+run opens it, then the details page of each order with a new or changed charge. Its later charges
+have no address. Since Amazon rebuilt the page (seen on 2026-10-20), the list fetches more charges
+by itself when its end is scrolled into view, and adds them below the ones shown, without loading
+a page. So a run scrolls to the end of the list the way a person does, waits for the list to grow,
+and reads it there; when it stops growing, the list has ended. The request is the page's own, under
+the run's marked user agent, never one the app composes. (Before the rebuild, the list had a Next
+Page button, which a run pressed in the same way; a run still does if the page shows one.) If that
+request is refused, the run stops and so does its schedule. How far back is the same rule as Walmart's,
 by the charges' dates. A run cut short starts again from the first page, since these pages have no
 address to resume at; the fingerprints make reading them again cheap.
 
