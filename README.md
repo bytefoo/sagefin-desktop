@@ -138,8 +138,10 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   first five again. So a run goes to the next page the way a person does, by pressing the page's
   own **Next page** button, and reads the orders from the request the page then makes. It carries
   on until it reaches orders older than 90 days or the end of the history; an older order has no
-  bank transaction in SageFin to match. It opens at most twenty orders a run, so a long history is
-  caught up over several days. Once caught up, a run stops at the first list page with nothing to
+  bank transaction in SageFin to match. It opens at most twenty orders a run. A run that opens all
+  twenty may have left more, so the next starts an hour later rather than a day later, and so on
+  until a run opens fewer: a long history is caught up over a few hours, each run as slow and as
+  small as any other (`catchingUp` in `lib/sync-plan.mjs`). Once caught up, a run stops at the first list page with nothing to
   open. The cost of that is deliberate: a late change to an order
   past the first page, such as a refund, is not seen by a scheduled run.
 - **Only what is new or changed.** The app remembers each order it has read with a fingerprint of
@@ -166,7 +168,9 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 - **When, and how often, is the member's to choose.** With nothing chosen a retailer syncs again a
   day after its last sync finished. In SageFin's Retail sync settings the member can pick an hour
   of the day and how often: daily, every two or three days, or weekly. Never more often than
-  daily, and an answer that asks for more is ignored. The hour is on this computer's own clock.
+  daily, and an answer that asks for more is ignored, except while catching up (above): a run
+  that opened its full twenty is followed an hour later, whatever was chosen, until one opens
+  fewer. The hour is on this computer's own clock.
   The choice is kept by SageFin, not here, because with several computers the daily sync belongs
   to whichever synced last; it arrives with the check-in answer (`scheduledRunAtMs` in
   `lib/sync-plan.mjs`). Sync now does not move it. The Retail sync page says
