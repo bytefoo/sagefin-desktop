@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SageFin Desktop</title>
+    <link rel="stylesheet" href="home.css" />
+  </head>
+  <body>
+    <!--
+      This computer's own window over SageFin's: a page from the app's own files, with no remote
+      content, so nothing SageFin's server serves can draw it, press its buttons or choose its words.
+      The main process decides what it shows; this page only shows it and passes back a press.
+    -->
+    <main>
+      <header class="brand">
+        <img src="logo.png" alt="" />
+        <h1 id="title">SageFin is locked</h1>
+      </header>
+      <p id="lead"></p>
+      <p id="code" class="card" hidden></p>
+      <p id="check" class="card" hidden></p>
+      <p id="said" class="alert-danger" hidden></p>
+      <p>
+        <button id="go" class="btn-primary" type="button" hidden></button>
+        <button id="cancel" class="btn-secondary" type="button">Not now</button>
+      </p>
+      <p id="fine" class="fine"></p>
+    </main>
+    <script src="unlock.js"></script>
+  </body>
+</html>

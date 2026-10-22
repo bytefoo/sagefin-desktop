@@ -59,15 +59,20 @@ download page on sagefin.app pointing at it, so do not start one to test somethi
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
-and with the retailers' terms. In particular: no request of its own to a retailer outside a sync; exactly two requests of
-its own elsewhere, both listed in the readme and neither carrying anything from a page (the
-five-minute check-in with SageFin in `lib/check-in.mjs`, and the update check to GitHub), so a
-third, or a new field on the check-in, changes the readme in the same PR; during a sync, and only then,
+and with the retailers' terms. In particular: no request of its own to a retailer outside a sync; exactly three requests of
+its own elsewhere, all listed in the readme and none carrying anything from a page (the
+five-minute check-in with SageFin in `lib/check-in.mjs`, the update check to GitHub, and, on a
+computer that holds a private household's key, whether that household is locked when the window
+is shown), so a fourth, or a new field on the check-in, changes the readme in the same PR; during a sync, and only then,
 it asks SageFin which listed orders another of the member's computers has read
 (`lib/read-orders.mjs`), sending a SHA-256 per order and never an order number, a fingerprint or
 anything else from a page in the clear; the check-in's answer
 may start a sync the member asked for from the web, which runs as a scheduled one does and under
-the same conditions (`shouldStartRequested`), and may never carry anything else for the app to do; a sync only moves
+the same conditions (`shouldStartRequested`), and may never carry anything else for the app to do,
+except that a private household's `privateMode` may make it show one notification asking the member
+(lib/private-mode.mjs counts them); a household key is used only after the member approves the
+operating system's own prompt, started from the app's own unlock window or menu and never from the
+page, and only for this window's own unlock or Sync and lock (`lib/private-mode.mjs`); a sync only moves
 between pages (loading them, and, where a list's later pages have no address, doing what a person
 does to see more: pressing Purchase history's own Next button at Walmart, scrolling the payments
 list to its end at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes

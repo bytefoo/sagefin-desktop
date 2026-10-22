@@ -231,7 +231,7 @@ Walmart and Amazon are the retailers the app supports today.
 - **Nothing on a retailer's page is wrapped, injected or changed.**
 - **Outside a sync it makes no request of its own to a retailer.** It saves what the member's own
   browsing loads.
-- **It makes two requests by itself, and neither carries anything from a page.**
+- **It makes three requests by itself, and none carries anything from a page.**
   - *To SageFin, every five minutes once the computer is connected* (`lib/check-in.mjs`). It sends
     the app's version and, for each retailer, when its last sync here ran and finished, whether the
     member or the schedule started it, which of four ways it ended (finished, turned away, met a
@@ -259,6 +259,13 @@ Walmart and Amazon are the retailers the app supports today.
   sign-in page. A request lapses after fifteen minutes and is handed over once, so a computer
   that wakes later does not run an old one. The request names a retailer and nothing else: it
   cannot point the app at an address, and it cannot read anything back.
+    The answer also carries, for a household in private mode, whether it is locked and whether
+    your bank has new activity (`privateMode`). That is a reason to ask you, never an unlock: see
+    [Private mode on this computer](#private-mode-on-this-computer).
+  - *To SageFin, when its window is shown, and only on a computer that holds a private household's
+    key*: whether that household is locked (`GET /api/v1/private/status`), on the window's own
+    sign-in. It sends nothing but the request, and the answer only decides whether the app's own
+    unlock window opens.
   - *To GitHub, once an hour, and when you choose Check for Updates*, to ask whether this
     repository has published a newer version (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
@@ -362,8 +369,57 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
+| `lib/private-protocol.mjs` | SageFin's private-mode bytes, as a holder needs them: what it signs, seals and opens, the key envelope, the add-a-device check. Held to SageFin's own test vectors (`fixtures/private-mode-vectors.json`) |
+| `lib/private-mode.mjs` | When the key may be used, what the prompt says, the notification's limits, and unlocking, Sync and lock and adding this computer |
+| `main/private-mode.mjs` | The unlock window, the menu item and the notification |
+| `main/key-store.mjs`, `native/macos/` | The keys in the Mac's Secure Enclave, behind Touch ID |
 
 `lib/` imports nothing from Electron, so its tests run with nothing installed.
+
+## Private mode on this computer
+
+**Not released yet, and not usable yet:** the macOS key helper has to be built and signed with the
+app, which needs the Developer ID signing this app does not have yet. Until then nothing below
+happens on any computer, and a private household's window is unlocked by the member's phone, the
+way a browser's is.
+
+In SageFin's private mode a household's data is encrypted with a key only its members' devices
+hold. On a Mac this app can be one of those devices, so its own window opens without reaching for
+the phone. What it holds itself to, in this source:
+
+- **The key lives in the computer's security chip, or the computer holds none.** On a Mac, two
+  keys made in the Secure Enclave by a small helper (`native/macos/SageFinKeys.swift`): one to
+  agree a key with, one to sign with. They cannot leave the Enclave, and each use needs Touch ID or
+  the login password, asked by macOS itself. Windows holds no key yet: SageFin accepts a key in the
+  TPM, but only one Windows Hello must release each time, and that has not been shown to work.
+  Linux holds none. **The operating system's keychain alone is never used for this key**: it keeps
+  a value from other people's accounts, not from a program running as you.
+- **It asks you every time.** Each unlock is one prompt, one key agreement and one signature, with
+  a sentence from a fixed list in `lib/private-mode.mjs`. Never while the screen is locked, the
+  window hidden or behind another, or another prompt is showing.
+- **The page cannot use the key.** The window shows SageFin's web app, which SageFin's server
+  serves, so nothing the page asks for counts as you. Unlocking starts from the app's own unlock
+  window (a page from the app's own files, `renderer/unlock.html`) or its menu, never from the
+  bridge, and the bridge has no call for it.
+- **It unlocks its own window, and Sync and lock, and nothing else.** The app asks SageFin for an
+  unlock on the window's own sign-in, checks the answer says that sign-in asked, and approves it
+  on the same sign-in. It never takes a request id from anywhere else, so it can never let in a
+  browser somewhere else: your phone approves those. It never adds a device, replaces your
+  recovery codes or gives another member a key. SageFin's server refuses this computer's approval
+  of anything else too.
+- **New bank activity is a question.** When the check-in says your household is locked and your
+  bank has new activity, the app shows a notification, "Your bank has new activity". It shows one
+  per locked period and never two within six hours, and it counts these itself, so SageFin cannot
+  make it ask more often. Clicking it opens the unlock window for a Sync and lock, and Touch ID
+  approves that. Nothing unlocks while you are away.
+- **Adding this computer is your phone's to approve.** From the menu, Use This Computer to Unlock
+  SageFin: the app makes its two keys and shows a code to type into your iPhone (Settings →
+  Security → Devices → Add a device), then twelve characters that both screens show. Add it only
+  if they match. Your phone signs what the computer is and where its keys are, and SageFin keeps
+  that. Removing the computer on your phone stops it unlocking.
+- **A record of every use stays on this computer** (`private-mode/private-mode.json` beside the
+  captures folder): when, what for, and how it ended. SageFin cannot erase it. That file holds
+  which household and which device this computer is, and its notices. None of these is a secret.
 
 ## Updating itself
 
