@@ -56,6 +56,15 @@ on `main`: it builds all three systems and **publishes** the release when they a
 hand, and do not push `v*` tags: publishing creates the tag. A run is a public release, with the
 download page on sagefin.app pointing at it, so do not start one to test something.
 
+To try a change to macOS signing, entitlements or the key helper, run the **mac-test-build**
+workflow on the branch (`gh workflow run mac-test-build.yml --ref <branch>`): the macOS build as a
+release makes it, signed, notarized and checked, kept as the run's artifact and published nowhere.
+**verify-mac-signing** checks the six signing secrets fit together, after one is replaced. Both
+print nothing secret, and anything added to them must not either: no secret, and nothing made
+from one (a decoded file, a password, a key's contents). The key helper is a bundle in the app's
+`Contents/Helpers` with its own copy of the provisioning profile, signed by `native/macos/build.sh`
+before electron-builder runs, which `mac.signIgnore` stops it re-signing; see `scripts/mac-build.sh`.
+
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,
