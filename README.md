@@ -373,6 +373,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
 | `lib/private-protocol.mjs` | SageFin's private-mode bytes, as a holder needs them: what it signs, seals and opens, the key envelope, the add-a-device check. Held to SageFin's own test vectors (`fixtures/private-mode-vectors.json`) |
 | `lib/private-mode.mjs` | When the key may be used, what the prompt says, the notification's limits, and unlocking, Sync and lock and adding this computer |
+| `lib/qr.mjs` | The QR code the phone scans to add this computer, made here at level M; every module held to the library SageFin's web app draws its codes with |
 | `main/private-mode.mjs` | The unlock window, the menu item and the notification |
 | `main/key-store.mjs`, `native/macos/` | The keys in the Mac's Secure Enclave, behind Touch ID |
 
@@ -418,8 +419,9 @@ the phone. What it holds itself to, in this source:
   make it ask more often. Clicking it opens the unlock window for a Sync and lock, and Touch ID
   approves that. Nothing unlocks while you are away.
 - **Adding this computer is your phone's to approve.** From the menu, Use This Computer to Unlock
-  SageFin: the app makes its two keys and shows a code to type into your iPhone (Settings →
-  Security → Devices → Add a device), then twelve characters that both screens show. Add it only
+  SageFin: the app makes its two keys and shows a QR code for your phone to scan (Settings →
+  Security → Devices → Add a device), with the same code beside it to type if the camera cannot
+  read it, then twelve characters that both screens show. Add it only
   if they match. Your phone signs what the computer is and where its keys are, and SageFin keeps
   that. Removing the computer on your phone stops it unlocking.
 - **A record of every use stays on this computer** (`private-mode/private-mode.json` beside the
