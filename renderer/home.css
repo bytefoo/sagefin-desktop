@@ -221,3 +221,8 @@ a.btn-primary {
   image-rendering: pixelated;
   border-radius: 8px;
 }
+
+/* A class that sets display beats the hidden attribute, so say it again: hidden means gone. */
+.qr[hidden] {
+  display: none;
+}
