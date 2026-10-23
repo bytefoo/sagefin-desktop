@@ -3,7 +3,7 @@
 //
 // - **Unlock this window.** When SageFin's window is shown and its household is locked, and this
 //   computer holds a key of it, the app's own unlock window opens over it. Its button, not the
-//   page, starts the unlock; macOS's Touch ID sheet asks the person; the window's own sign-in
+//   page, starts the unlock; Touch ID or Windows Hello asks the person; the window's own sign-in
 //   asks and approves. The page can do nothing here but be covered.
 // - **Sync and lock.** When the check-in says your bank has new activity, a notification asks,
 //   at most once a locked period and never twice in six hours. Clicking it shows the window and the
@@ -41,9 +41,13 @@ import {
 } from "../lib/private-mode.mjs";
 import { openKeyStore } from "./key-store.mjs";
 import { qrRows } from "../lib/qr.mjs";
+import { presenceName } from "../lib/key-helper.mjs";
 
 const here = import.meta.dirname;
 const PAGE = pathToFileURL(path.join(here, "..", "renderer", "unlock.html")).href;
+
+/** What the system's own prompt is called here: Touch ID, or Windows Hello. */
+const PRESENCE = presenceName(process.platform);
 
 /** What SageFin said when it refused, in words for the person here. Codes only; never a raw one. */
 const REFUSED = /** @type {Record<string, string>} */ ({
@@ -189,8 +193,8 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
       title: purpose === "sync" ? "Your bank has new activity" : "SageFin is locked",
       lead:
         purpose === "sync"
-          ? "Sync your banks and keep your household locked. You'll be asked to confirm with Touch ID."
-          : "Unlock SageFin in this window. You'll be asked to confirm with Touch ID.",
+          ? `Sync your banks and keep your household locked. You'll be asked to confirm with ${PRESENCE}.`
+          : `Unlock SageFin in this window. You'll be asked to confirm with ${PRESENCE}.`,
       button: purpose === "sync" ? "Sync and lock" : "Unlock",
       fine: "This computer asks you each time. It never unlocks a browser; your phone does that.",
     };
@@ -234,7 +238,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     openOverlay(win);
     const intro = {
       title: "Use this computer to unlock SageFin",
-      lead: "Its key stays in this computer's security chip, and it asks you with Touch ID each time. Your phone has to add it.",
+      lead: `Its key stays in this computer's security chip, and it asks you with ${PRESENCE} each time. Your phone has to add it.`,
       button: "Continue",
       fine: "It unlocks this window and syncs your banks when you say so. It never unlocks a browser.",
     };

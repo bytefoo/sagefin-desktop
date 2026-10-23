@@ -65,6 +65,13 @@ from one (a decoded file, a password, a key's contents). The key helper is a bun
 `Contents/Helpers` with its own copy of the provisioning profile, signed by `native/macos/build.sh`
 before electron-builder runs, which `mac.signIgnore` stops it re-signing; see `scripts/mac-build.sh`.
 
+The Windows key helper (`native/windows/`, C# compiled ahead of time to one native program) is
+built by `native/windows/build.sh` on Windows with the .NET 10 SDK and Visual Studio's C++ tools,
+and carried into the app's resources by `win.extraResources`. CI builds it and checks it starts;
+no hosted runner has Windows Hello, so a change to it is checked on a real Windows computer, at
+its screen: `native/windows/build.sh --self-test` (no prompt), then
+`node native/windows/hello-check.mjs` (three Windows Hello prompts). It is not code-signed.
+
 ## What the app must not do
 
 The readme's "What it does, and what it deliberately does not" is the contract with the member,

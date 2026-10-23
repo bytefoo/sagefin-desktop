@@ -1,3 +1,6 @@
 node_modules
 dist/
 native/macos/build/
+native/windows/build/
+native/windows/bin/
+native/windows/obj/

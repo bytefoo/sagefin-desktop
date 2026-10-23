@@ -1,15 +1,21 @@
 // @ts-check
 // The two keys this computer holds for a private SageFin household, in its own security chip.
 //
-// On a Mac they are made in the Secure Enclave by a small helper, `native/macos/SageFinKeys.swift`,
-// built and signed with the app, and they never leave it: the helper returns public keys, one raw
-// agreement and one signature, and nothing else. Each use needs Touch ID or the login password,
-// asked by macOS's own sheet, with the sentence this app passes from lib/private-mode.mjs's fixed
-// list; one approval allows one agreement and one signature, and ends after thirty seconds.
+// They are made and used by a small helper, built with the app, and they never leave the chip:
+// the helper returns public keys, one raw agreement and one signature, and nothing else. Which
+// helper, and where it is, is lib/key-helper.mjs's to say.
 //
-// Windows and Linux have no helper. There this computer holds no key, and its window is unlocked
-// by the member's phone as a browser's is. Windows is allowed by SageFin once a TPM key can be
-// made to need Windows Hello for each use; that has not been shown yet.
+// - **macOS**: `native/macos/SageFinKeys.swift`, keys in the Secure Enclave. Each use needs Touch
+//   ID or the login password, asked by macOS's own sheet, with the sentence this app passes from
+//   lib/private-mode.mjs's fixed list.
+// - **Windows**: `native/windows/` (sagefin-keys.exe), keys in the TPM. Each use needs Windows
+//   Hello, asked by Windows itself: the TPM opens a key only with a password derived from a
+//   Windows Hello signature, which Windows makes only after the face, fingerprint or PIN. Windows
+//   Hello's prompt shows its own words, not the sentence; the app's unlock window says what for.
+//
+// Either way one approval allows one agreement and one signature, and ends after thirty seconds.
+// Linux has no helper: there this computer holds no key, and its window is unlocked by the
+// member's phone as a browser's is.
 //
 // What does not live here: nothing reads the operating system's keychain for a household key, and
 // `safeStorage` is never used for one. It protects a value from other people's accounts on this
@@ -20,21 +26,10 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { app } from "electron";
+import { helperPath } from "../lib/key-helper.mjs";
 
 /** How long one approval may be used for, after the person approved it. */
 const APPROVAL_LASTS_MS = 30_000;
-
-/**
- * Where the helper is: a bundle in the app's Contents/Helpers when packaged (Resources is its
- * sibling), or what `native/macos/build.sh` built, from source. Only a signed build's helper can
- * use the keychain: one built from source without signing answers every request "keychain".
- */
-function helperPath() {
-  const program = path.join("SageFinKeys.app", "Contents", "MacOS", "sagefin-keys");
-  return app.isPackaged
-    ? path.join(process.resourcesPath, "..", "Helpers", program)
-    : path.join(import.meta.dirname, "..", "native", "macos", "build", program);
-}
 
 /**
  * The key store for this computer, or one that says it holds no hardware keys.
@@ -42,8 +37,10 @@ function helperPath() {
  * @returns {import("../lib/private-mode.mjs").KeyStore & { hardwareKeys: boolean }}
  */
 export function openKeyStore(service) {
-  const helper = helperPath();
-  if (process.platform !== "darwin" || !existsSync(helper)) return noKeys();
+  // Only a signed Mac build's helper can use the keychain: one built from source without signing
+  // answers every request "keychain". Windows' helper is not code-signed, as the installer is not.
+  const helper = helperPath({ platform: process.platform, packaged: app.isPackaged, resourcesPath: process.resourcesPath, sourceRoot: path.join(import.meta.dirname, "..") });
+  if (!helper || !existsSync(helper)) return noKeys();
 
   /**
    * One request to the helper: a JSON line in, a JSON line out. The helper is started for each
@@ -53,7 +50,7 @@ export function openKeyStore(service) {
    */
   const run = (steps) =>
     new Promise((resolve, reject) => {
-      const child = spawn(helper, [service], { stdio: ["pipe", "pipe", "ignore"] });
+      const child = spawn(helper, [service], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
       let out = "";
       const timer = setTimeout(() => child.kill(), APPROVAL_LASTS_MS + 60_000);
       child.stdout.on("data", (chunk) => (out += chunk));
@@ -66,7 +63,8 @@ export function openKeyStore(service) {
           const failed = answers.find((a) => a.error);
           if (failed) reject(new Error(failed.error));
           // A helper that ended with no answer, or not cleanly, did not say "no keys": macOS may
-          // have stopped it before it ran (a signature or entitlement it refused).
+          // have stopped it before it ran (a signature or entitlement it refused), or Windows (an
+          // antivirus that quarantined it).
           else if (code !== 0 || answers.length === 0) reject(new Error("failed"));
           else resolve(answers);
         } catch {
@@ -89,7 +87,8 @@ export function openKeyStore(service) {
       return keysOf(answer);
     },
     /**
-     * One approval over one helper process: the helper shows macOS's prompt with `prompt` and
+     * One approval over one helper process: the helper shows the system's prompt (macOS's with
+     * `prompt`; Windows Hello's own, which takes no sentence) and
      * answers nothing until the person approves it; then it takes one agreement and one signature,
      * in that order, and exits. The signature's bytes depend on what the agreement opened, which
      * is why the two are steps of one conversation rather than one request.
@@ -99,7 +98,7 @@ export function openKeyStore(service) {
      */
     async withPresence(prompt, use) {
       // A conversation over one helper process, kept open for one approval only.
-      const child = spawn(helper, [service, "--approve", prompt], { stdio: ["pipe", "pipe", "ignore"] });
+      const child = spawn(helper, [service, "--approve", prompt], { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
       const lines = /** @type {string[]} */ ([]);
       /** @type {((line: string) => void)[]} */
       const waiting = [];
@@ -145,7 +144,7 @@ export function openKeyStore(service) {
         });
       const ended = setTimeout(() => child.kill(), APPROVAL_LASTS_MS);
       try {
-        // The helper answers this only once the person has approved macOS's prompt.
+        // The helper answers this only once the person has approved the system's prompt.
         await ask({ op: "presence" });
         return await use({
           agree: async (peer) => Buffer.from(/** @type {any} */ (await ask({ op: "agree", peer: Buffer.from(peer).toString("base64") })).agreement, "base64"),

@@ -376,6 +376,7 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/qr.mjs` | The QR code the phone scans to add this computer, made here at level M; every module held to the library SageFin's web app draws its codes with |
 | `main/private-mode.mjs` | The unlock window, the menu item and the notification |
 | `main/key-store.mjs`, `native/macos/` | The keys in the Mac's Secure Enclave, behind Touch ID |
+| `lib/key-helper.mjs`, `native/windows/` | Which helper a system has; the keys in a Windows computer's TPM, behind Windows Hello |
 
 `lib/` imports nothing from Electron, so its tests run with nothing installed.
 
@@ -387,17 +388,20 @@ browser's is. The macOS key helper is built and signed with the app by the relea
 (`native/macos/build.sh`): a small bundle in the app's `Contents/Helpers`, `SageFinKeys.app`, with
 its own copy of the app's Developer ID provisioning profile, because macOS honours the keychain
 entitlement it needs only with one. A build without the signing secrets (a fork, a pull request)
-leaves the helper out, and that Mac holds no key.
+leaves the helper out, and that Mac holds no key. The Windows key helper is built by the same
+workflow (`native/windows/build.sh`) into the app's resources folder, `sagefin-keys.exe`, and is
+not code-signed, as the Windows installer is not.
 
 In SageFin's private mode a household's data is encrypted with a key only its members' devices
-hold. On a Mac this app can be one of those devices, so its own window opens without reaching for
-the phone. What it holds itself to, in this source:
+hold. On a Mac or a Windows computer this app can be one of those devices, so its own window opens
+without reaching for the phone. What it holds itself to, in this source:
 
 - **The key lives in the computer's security chip, or the computer holds none.** On a Mac, two
   keys made in the Secure Enclave by a small helper (`native/macos/SageFinKeys.swift`): one to
   agree a key with, one to sign with. They cannot leave the Enclave, and each use needs Touch ID or
-  the login password, asked by macOS itself. Windows holds no key yet: SageFin accepts a key in the
-  TPM, but only one Windows Hello must release each time, and that has not been shown to work.
+  the login password, asked by macOS itself. On Windows, the same two keys made in the TPM by a
+  helper of its own (`native/windows/`), which cannot leave the TPM, and each use needs Windows
+  Hello; how, and where that is weaker than the Mac, is [below](#on-windows-what-the-tpm-and-windows-hello-protect).
   Linux holds none. **The operating system's keychain alone is never used for this key**: it keeps
   a value from other people's accounts, not from a program running as you.
 - **It asks you every time.** Each unlock is one prompt, one key agreement and one signature, with
@@ -423,7 +427,7 @@ the phone. What it holds itself to, in this source:
   bank has new activity, the app shows a notification, "Your bank has new activity". It shows one
   per locked period and never two within six hours, and it counts these itself, so SageFin cannot
   make it ask more often. Clicking it opens the unlock window for a Sync and lock, and Touch ID
-  approves that. Nothing unlocks while you are away.
+  or Windows Hello approves that. Nothing unlocks while you are away.
 - **Adding this computer is your phone's to approve.** From the menu, Use This Computer to Unlock
   SageFin, or Add this computer on SageFin's locked page, which asks the app to open the same
   thing: the app makes its two keys and shows a QR code for your phone to scan (Settings →
@@ -434,6 +438,55 @@ the phone. What it holds itself to, in this source:
 - **A record of every use stays on this computer** (`private-mode/private-mode.json` beside the
   captures folder): when, what for, and how it ended. SageFin cannot erase it. That file holds
   which household and which device this computer is, and its notices. None of these is a secret.
+
+### On Windows: what the TPM and Windows Hello protect
+
+Windows has no single place that does what a Mac's Secure Enclave does for this. Its TPM can make
+a P-256 key that never leaves it, but the only lock it puts on that key is a password; Windows
+Hello asks for your face, fingerprint or PIN, but its keys are RSA, sign only, and cannot agree a
+key. The helper (`native/windows/`) joins the two:
+
+- It makes a Windows Hello key, and the two P-256 keys in the TPM (through Windows's Platform
+  Crypto Provider), neither of which can be exported. The TPM uses each P-256 key only with a
+  password, and **the passwords are stored nowhere**: each is derived (HKDF-SHA-256) from a
+  signature the Windows Hello key makes over a fixed sentence.
+- Each use starts a new helper process, which asks Windows Hello for that signature. Windows
+  shows its own prompt and signs only after you answer it; the helper then derives the passwords,
+  does one agreement and one signature, and exits. A program that cannot get past Windows Hello
+  cannot get the signature, and without it the TPM refuses the keys: the TPM checks the password,
+  not this app. Every use of a TPM key is silent, so a missing or wrong password is refused rather
+  than answered by Windows's older "password for this key" box, which is not Windows Hello.
+- Adding this computer asks Windows Hello twice: once to make its key (that approval also covers
+  the signature that sets the TPM passwords), and once to sign the request to be added.
+- It refuses over Remote Desktop, and on a computer whose Windows Hello key Windows cannot vouch
+  is in its TPM, and then the computer holds no key.
+
+**What this does not protect, and the Mac does:**
+
+- **The passwords pass through the helper's memory each time.** On a Mac the Secure Enclave checks
+  Touch ID itself and nothing leaves it. On Windows the derived passwords exist, for the moment of
+  one use, in a program running as you. Malware already running as you that read them then could
+  use the keys afterwards without Windows Hello. It still could not take the keys off this
+  computer: they stay in the TPM, and the TPM limits how fast passwords can be guessed.
+- **It relies on Windows Hello's signatures coming out the same each time.** RSA signatures of the
+  kind Windows Hello makes (PKCS#1 v1.5) are deterministic, but Microsoft does not promise that
+  Windows Hello's will stay so. If one ever changes, the keys stop opening. A check value kept
+  beside the keys (`%LOCALAPPDATA%\SageFin Desktop Keys`, not a secret) notices before the TPM is
+  asked, so a wrong password never counts against the TPM's lockout; you then add the computer
+  again from your phone. Nothing is lost: your other devices still unlock.
+- **Removing or resetting Windows Hello removes the key.** Windows deletes Windows Hello keys with
+  the PIN, and the TPM keys cannot open without it. The computer then holds no key, and you add
+  it again from your phone.
+- **Windows Hello's prompt does not say what it is for.** It shows Windows's own words; the
+  sentence from `lib/private-mode.mjs` is on the app's unlock window, in front of it.
+- **The helper is not code-signed**, as the installer is not.
+
+To check it on a Windows computer with a TPM and Windows Hello set up, at the computer itself:
+
+```bash
+native/windows/build.sh --self-test   # the TPM side, with throwaway keys; no prompt
+node native/windows/hello-check.mjs   # three Windows Hello prompts, each to approve
+```
 
 ## Updating itself
 

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    SageFin Desktop's key helper for Windows (Program.cs). Published by native/windows/build.sh as
+    one native program, sagefin-keys.exe, with no .NET runtime to install: Native AOT, x64 only, as
+    the app is. The Windows 10 SDK target is what gives it Windows Hello (KeyCredentialManager).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AssemblyName>sagefin-keys</AssemblyName>
+    <RootNamespace>SageFinKeys</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>false</StackTraceSupport>
+    <Product>SageFin Desktop</Product>
+    <AssemblyTitle>SageFin Desktop keys</AssemblyTitle>
+  </PropertyGroup>
+</Project>
