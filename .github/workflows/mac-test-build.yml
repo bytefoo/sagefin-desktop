@@ -71,7 +71,7 @@ jobs:
       # macOS refuses a restricted entitlement its profile does not allow by killing the program
       # as it starts, and the keychain refuses to store an item for a program without one. The probe
       # writes and removes an item that holds no key, so the helper answering it started, and used
-      # its keychain, as signed. A runner has no Secure Enclave, so no key is made here.
+      # its keychain, as signed. No key is made here: that, and Touch ID, are for a real Mac.
       - name: The key helper starts and can use its keychain
         if: env.MAC_SIGNED == 'true'
         run: |
