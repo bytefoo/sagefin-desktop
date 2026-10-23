@@ -49,7 +49,19 @@
       "category": "public.app-category.finance",
       "icon": "build/icon-mac.png",
       "identity": "-",
-      "hardenedRuntime": false
+      "hardenedRuntime": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "notarize": false,
+      "extraFiles": [
+        {
+          "from": "native/macos/build/SageFinKeys.app",
+          "to": "Helpers/SageFinKeys.app"
+        }
+      ],
+      "signIgnore": [
+        "/Contents/Helpers/SageFinKeys\\.app(/|$)"
+      ]
     },
     "win": {
       "target": [

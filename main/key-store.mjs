@@ -24,12 +24,16 @@ import { app } from "electron";
 /** How long one approval may be used for, after the person approved it. */
 const APPROVAL_LASTS_MS = 30_000;
 
-/** Where the helper is: beside the app's resources when packaged, under `native/` from source. */
+/**
+ * Where the helper is: a bundle in the app's Contents/Helpers when packaged (Resources is its
+ * sibling), or what `native/macos/build.sh` built, from source. Only a signed build's helper can
+ * use the keychain: one built from source without signing answers every request "keychain".
+ */
 function helperPath() {
-  const name = "sagefin-keys";
+  const program = path.join("SageFinKeys.app", "Contents", "MacOS", "sagefin-keys");
   return app.isPackaged
-    ? path.join(process.resourcesPath, name)
-    : path.join(import.meta.dirname, "..", "native", "macos", "build", name);
+    ? path.join(process.resourcesPath, "..", "Helpers", program)
+    : path.join(import.meta.dirname, "..", "native", "macos", "build", program);
 }
 
 /**
@@ -54,12 +58,16 @@ export function openKeyStore(service) {
       const timer = setTimeout(() => child.kill(), APPROVAL_LASTS_MS + 60_000);
       child.stdout.on("data", (chunk) => (out += chunk));
       child.on("error", reject);
-      child.on("close", () => {
+      child.stdin.on("error", () => {}); // The helper ended before reading; `close` answers it.
+      child.on("close", (code) => {
         clearTimeout(timer);
         try {
           const answers = out.trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
           const failed = answers.find((a) => a.error);
           if (failed) reject(new Error(failed.error));
+          // A helper that ended with no answer, or not cleanly, did not say "no keys": macOS may
+          // have stopped it before it ran (a signature or entitlement it refused).
+          else if (code !== 0 || answers.length === 0) reject(new Error("failed"));
           else resolve(answers);
         } catch {
           reject(new Error("failed"));
@@ -107,16 +115,32 @@ export function openKeyStore(service) {
           else lines.push(line);
         }
       });
+      // A helper that cannot start, or ends without answering (killed, crashed, refused by macOS),
+      // fails whatever is still waiting for it, so a request never stays open on a dead process.
+      let gone = false;
+      const end = () => {
+        gone = true;
+        for (const next of waiting.splice(0)) next("");
+      };
+      child.on("error", end);
+      child.on("close", end);
+      child.stdin.on("error", () => {}); // A write after the helper ended; `close` answers it.
       const ask = (/** @type {Record<string, unknown>} */ step) =>
         new Promise((resolve, reject) => {
-          child.stdin.write(JSON.stringify(step) + "\n");
           const take = (/** @type {string} */ line) => {
-            const answer = JSON.parse(line);
+            let answer;
+            try {
+              answer = JSON.parse(line);
+            } catch {
+              return reject(new Error("failed"));
+            }
             if (answer.error) reject(new Error(answer.error));
             else resolve(answer);
           };
+          if (!gone) child.stdin.write(JSON.stringify(step) + "\n");
           const ready = lines.shift();
           if (ready !== undefined) take(ready);
+          else if (gone) take("");
           else waiting.push(take);
         });
       const ended = setTimeout(() => child.kill(), APPROVAL_LASTS_MS);
