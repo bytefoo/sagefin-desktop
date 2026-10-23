@@ -26,6 +26,7 @@ import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
 import { UPDATE_SENTENCE, belowMinimum, runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
+import { startPrivateMode } from "./private-mode.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
 
@@ -128,6 +129,12 @@ let checkingIn = null;
 /** Something changed while one was under way, so another follows it. */
 let checkInAgain = false;
 let checkInEveryMs = CHECK_IN_EVERY_MS;
+/**
+ * Private mode on this computer (main/private-mode.mjs): unlocking its own window, and Sync and
+ * lock when the member says so, with the key in the computer's security chip.
+ * @type {ReturnType<typeof startPrivateMode> | null}
+ */
+let privateMode = null;
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
@@ -301,6 +308,15 @@ async function start() {
     },
   });
 
+  // A private household's own window, unlocked here with Touch ID once this computer holds a key.
+  // Offered when the window is shown, and from the menu; never because the page asked.
+  privateMode = startPrivateMode({ site: () => site, window: () => main?.window ?? null, showWindow: () => main?.show(), dir: path.join(dir, "..", "private-mode") });
+  main.window.on("show", () => void privateMode?.onWindowShown());
+  main.window.webContents.once("did-finish-load", () => {
+    if (main?.window.isVisible()) void privateMode?.onWindowShown();
+  });
+  main.refreshMenu();
+
   // Whatever was saved and not sent before the app last closed.
   void upload();
 
@@ -346,7 +362,9 @@ function backgroundMenuItems() {
       click: (item) => setPreference({ openAtLogin: item.checked }),
     });
   }
-  return items;
+  // Unlocking with this computer, or adding it: only where it can hold a key.
+  const unlocking = privateMode?.menuItems() ?? [];
+  return unlocking.length ? [...items, { type: "separator" }, ...unlocking] : items;
 }
 
 /** @param {Partial<import("../lib/background.mjs").Preferences>} changes */
@@ -556,6 +574,8 @@ async function checkInOnce() {
   });
   checkInEveryMs = result.againInMs;
   if (result.status !== "answered") return;
+  // A private household's lock, and whether its bank has new activity: a reason to ask, counted here.
+  if (asked.key === site.key) privateMode?.onCheckIn(result.privateMode ?? null);
 
   lastCheckIn = { at: Date.now(), siteKey: asked.key, answers: result.answers };
   if (result.minimumVersion) minimumVersions.set(asked.key, result.minimumVersion);

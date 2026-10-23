@@ -187,3 +187,27 @@ a.btn-primary {
   display: inline-block;
   text-decoration: none;
 }
+
+/* The unlock window's second button: the web's .btn-secondary, restated as the others are. */
+.btn-secondary {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn-secondary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* The code a person types into their phone, and the check both screens show. */
+#code,
+#check {
+  font-family: ui-monospace, monospace;
+  font-size: var(--type-subheading);
+  letter-spacing: 0.08em;
+}
