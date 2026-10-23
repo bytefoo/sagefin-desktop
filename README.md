@@ -406,7 +406,13 @@ the phone. What it holds itself to, in this source:
 - **The page cannot use the key.** The window shows SageFin's web app, which SageFin's server
   serves, so nothing the page asks for counts as you. Unlocking starts from the app's own unlock
   window (a page from the app's own files, `renderer/unlock.html`) or its menu, never from the
-  bridge, and the bridge has no call for it.
+  bridge, and the bridge has no call for it. The page may ask the bridge three things, and none
+  uses the key: whether this computer holds a key of the household it names (a yes or no; no key,
+  device id or anything else comes back), to show the app's unlock window, and to start adding
+  this computer as the menu does. The last two are carried out only straight after a press on the
+  page, with its window in front and the screen unlocked, and never twice within ten seconds
+  (`whyIgnorePageAsk`), so a page cannot keep the window in front of you. What unlocks is still
+  the window's own button and the operating system's prompt.
 - **It unlocks its own window, and Sync and lock, and nothing else.** The app asks SageFin for an
   unlock on the window's own sign-in, checks the answer says that sign-in asked, and approves it
   on the same sign-in. It never takes a request id from anywhere else, so it can never let in a
@@ -419,7 +425,8 @@ the phone. What it holds itself to, in this source:
   make it ask more often. Clicking it opens the unlock window for a Sync and lock, and Touch ID
   approves that. Nothing unlocks while you are away.
 - **Adding this computer is your phone's to approve.** From the menu, Use This Computer to Unlock
-  SageFin: the app makes its two keys and shows a QR code for your phone to scan (Settings →
+  SageFin, or Add this computer on SageFin's locked page, which asks the app to open the same
+  thing: the app makes its two keys and shows a QR code for your phone to scan (Settings →
   Security → Devices → Add a device), with the same code beside it to type if the camera cannot
   read it, then twelve characters that both screens show. Add it only
   if they match. Your phone signs what the computer is and where its keys are, and SageFin keeps

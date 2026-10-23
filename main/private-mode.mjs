@@ -12,6 +12,10 @@
 //   be added, and shows a QR code for your phone to scan, with the same code beside it to type,
 //   then the twelve characters both screens show. Your phone adds it; this computer then unlocks
 //   once to prove it.
+// - **What the page may ask.** Whether this computer holds a key of the household it names (a yes
+//   or no), and to show the unlock window or start adding this computer, as the menu does. Only
+//   straight after a press on the page, in front of a person, and not again within seconds. What
+//   unlocks is still a press in the app's own window and the operating system's prompt.
 // - **A record of every use**, kept on this computer, which SageFin cannot erase.
 
 import { BrowserWindow, Notification, ipcMain, powerMonitor } from "electron";
@@ -26,11 +30,13 @@ import {
   enrolmentQrText,
   holderTokens,
   holdingOf,
+  holdsKeyFor,
   logged,
   lookAtEnrolment,
   syncNotice,
   typedCode,
   unlockHere,
+  whyIgnorePageAsk,
   whyNotNow,
 } from "../lib/private-mode.mjs";
 import { openKeyStore } from "./key-store.mjs";
@@ -176,7 +182,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
   async function offerUnlock(purpose) {
     const win = window();
     const holding = state.holdings[site().key];
-    if (!win || !holding) return;
+    if (!win || !holding) return false;
     openOverlay(win);
     const what = purpose === "sync" ? "sync" : "unlock";
     const view = {
@@ -215,6 +221,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
         prompting = false;
       }
     };
+    return true;
   }
 
   // ── Adding this computer ──────────────────────────────────────────────────────────────────
@@ -223,7 +230,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     const win = window();
     const store = keys();
     const tokens = holderTokens(process.platform, store);
-    if (!win || !tokens) return;
+    if (!win || !tokens) return false;
     openOverlay(win);
     const intro = {
       title: "Use this computer to unlock SageFin",
@@ -277,11 +284,54 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
         }
       }, 2000);
     };
+    return true;
   }
+
+  // ── What the page may ask ─────────────────────────────────────────────────────────────────
+
+  /** @type {number | null} */
+  let lastPageAsk = null;
+
+  /** Whether to carry out the page's ask now, counted here so a page cannot nag. */
+  function pageMayAsk() {
+    const win = window();
+    const now = Date.now();
+    const why = whyIgnorePageAsk({
+      lastAt: lastPageAsk,
+      now,
+      screenLocked,
+      windowShown: Boolean(win && win.isVisible() && !win.isMinimized()),
+      windowFocused: Boolean(win && win.isFocused()),
+      overlayOpen: Boolean(overlay && !overlay.isDestroyed()),
+    });
+    if (why) return false;
+    lastPageAsk = now;
+    return true;
+  }
+
+  const canHoldKey = () => Boolean(holderTokens(process.platform, keys()));
 
   return {
     /** Whether this computer holds a key of the household on the site shown. */
     holdsAKey: () => Boolean(state.holdings[site().key]),
+
+    /** The page's one yes or no: does this computer hold a key of the household it names? */
+    holdsKeyFor: (/** @type {unknown} */ householdId) => holdsKeyFor(state.holdings[site().key], householdId),
+
+    /** Whether this computer could be added at all: a security chip and the prompt that guards it. */
+    canHoldKey,
+
+    /** The page asked to show the unlock window. It only shows it; its button unlocks. */
+    async pageAsksToUnlock() {
+      if (!state.holdings[site().key] || !pageMayAsk()) return false;
+      return offerUnlock("full");
+    },
+
+    /** The page asked to start adding this computer, as the menu item does. */
+    async pageAsksToAdd() {
+      if (state.holdings[site().key] || !canHoldKey() || !pageMayAsk()) return false;
+      return offerEnrolment();
+    },
 
     /** For the app's menu: unlock here, or add this computer. Never offered where it cannot hold a key. */
     menuItems() {
