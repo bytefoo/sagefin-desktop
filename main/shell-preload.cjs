@@ -15,6 +15,10 @@ const onRetailersChanged = (listener) => {
   return () => ipcRenderer.removeListener("shell:retailers-changed", handler);
 };
 
+// Whether the person has just pressed something on the page. A script cannot fake this: only a real
+// click or key press gives it, for a few seconds.
+const pressed = () => navigator.userActivation?.isActive !== false;
+
 if (SAGEFIN_ORIGINS.includes(location.origin)) {
   contextBridge.exposeInMainWorld("sagefinDesktop", {
     // What this app is and what it can do, so a newer web app can ask an older shell.
@@ -33,6 +37,16 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     connect: (credential) => ipcRenderer.invoke("shell:connect", credential),
     disconnect: () => ipcRenderer.invoke("shell:disconnect"),
     onRetailersChanged,
+
+    // Private mode. The page may ask one yes or no, and ask for the app's own windows; it can never
+    // unlock. Whether this computer holds a key of the household the page names: no key, holder id
+    // or anything else comes back.
+    holdsKeyFor: (householdId) => ipcRenderer.invoke("shell:holds-key", householdId),
+    // Shows the app's own unlock window, whose button and the operating system's prompt are what
+    // unlock. Carried out only straight after a press on the page, and not again within seconds.
+    showUnlockWindow: () => (pressed() ? ipcRenderer.invoke("shell:show-unlock") : Promise.resolve(false)),
+    // Starts adding this computer, as the menu's Use This Computer to Unlock SageFin does.
+    addThisComputer: () => (pressed() ? ipcRenderer.invoke("shell:add-this-computer") : Promise.resolve(false)),
 
     // The same four under the names they had while the app said "store" for a retailer. The web app
     // is always the newest and an installed app may not be, so the web app asks for the new names

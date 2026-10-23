@@ -299,6 +299,13 @@ async function start() {
         return tokenId;
       },
     },
+    // What the page may ask of private mode, which starts just below, once its window exists.
+    privateMode: {
+      holdsKeyFor: (householdId) => privateMode?.holdsKeyFor(householdId) ?? false,
+      canHoldKey: () => privateMode?.canHoldKey() ?? false,
+      showUnlock: async () => (await privateMode?.pageAsksToUnlock()) ?? false,
+      startAdding: async () => (await privateMode?.pageAsksToAdd()) ?? false,
+    },
     onSite(next) {
       site = next;
       uploadNotice = null;

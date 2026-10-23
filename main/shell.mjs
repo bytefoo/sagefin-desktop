@@ -31,6 +31,9 @@ function openInBrowser(url) {
  *   Taking the upload-only token the signed-in page minted, and letting go of it.
  * @param {(site: import("../lib/site.mjs").Site) => void} options.onSite
  *   Called when a development run switches to another SageFin.
+ * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean> }} options.privateMode
+ *   What the page may ask of private mode (main/private-mode.mjs): one yes or no, and to show the
+ *   app's own windows. Nothing here uses the key; a press in those windows does.
  * @param {string} options.version  The version the app reports about itself (lib/version.mjs).
  * @param {string} options.icon  The window icon, where the platform shows one.
  * @param {object} options.background  Running in the background (lib/background.mjs).
@@ -43,7 +46,7 @@ function openInBrowser(url) {
  *   What there is to say about updates, for the Retailers menu. Asked for each time the menu is built.
  * @returns {{ window: BrowserWindow, switchSite: (site: import("../lib/site.mjs").Site) => void, changed: () => void, show: () => void, refreshMenu: () => void }}
  */
-export function openShell({ site: initialSite, version, onRetailers, retailers, account, onSite, icon, background, updateMenuItems }) {
+export function openShell({ site: initialSite, version, onRetailers, retailers, account, privateMode, onSite, icon, background, updateMenuItems }) {
   let site = initialSite;
 
   /** @param {import("../lib/site.mjs").Site} s */
@@ -69,7 +72,13 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
 
   ipcMain.handle("shell:info", (event) =>
     fromSite(event)
-      ? { app: "sagefin-desktop", version, platform: process.platform, capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name"] }
+      ? {
+          app: "sagefin-desktop",
+          version,
+          platform: process.platform,
+          // "add-this-computer" only where this computer can hold a key at all.
+          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
+        }
       : null,
   );
   ipcMain.handle("shell:retailers", (event) => (fromSite(event) ? retailers.status() : null));
@@ -87,6 +96,9 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   );
   ipcMain.handle("shell:connect", (event, credential) => (fromSite(event) ? account.connect(credential) : false));
   ipcMain.handle("shell:disconnect", (event) => (fromSite(event) ? account.disconnect() : null));
+  ipcMain.handle("shell:holds-key", (event, householdId) => (fromSite(event) ? privateMode.holdsKeyFor(householdId) : false));
+  ipcMain.handle("shell:show-unlock", (event) => (fromSite(event) ? privateMode.showUnlock() : false));
+  ipcMain.handle("shell:add-this-computer", (event) => (fromSite(event) ? privateMode.startAdding() : false));
 
   /** @param {import("../lib/site.mjs").Site} s @param {{ show?: boolean }} [options] */
   function create(s, { show = true } = {}) {
