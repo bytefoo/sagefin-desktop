@@ -9,8 +9,9 @@
 //   at most once a locked period and never twice in six hours. Clicking it shows the window and the
 //   same unlock window, for a Sync and lock, asked the same way.
 // - **Adding this computer.** From the menu: the app makes two keys in the security chip, asks to
-//   be added, and shows a code to type into your phone, then the twelve characters both screens
-//   show. Your phone adds it; this computer then unlocks once to prove it.
+//   be added, and shows a QR code for your phone to scan, with the same code beside it to type,
+//   then the twelve characters both screens show. Your phone adds it; this computer then unlocks
+//   once to prove it.
 // - **A record of every use**, kept on this computer, which SageFin cannot erase.
 
 import { BrowserWindow, Notification, ipcMain, powerMonitor } from "electron";
@@ -22,6 +23,7 @@ import {
   NO_NOTICES,
   SYNC_NOTICE,
   beginEnrolment,
+  enrolmentQrText,
   holderTokens,
   holdingOf,
   logged,
@@ -32,6 +34,7 @@ import {
   whyNotNow,
 } from "../lib/private-mode.mjs";
 import { openKeyStore } from "./key-store.mjs";
+import { qrRows } from "../lib/qr.mjs";
 
 const here = import.meta.dirname;
 const PAGE = pathToFileURL(path.join(here, "..", "renderer", "unlock.html")).href;
@@ -106,7 +109,11 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
   let prompting = false;
 
   /** @param {Record<string, unknown>} view */
-  const show = (view) => overlay?.webContents.send("unlock:view", view);
+  const show = (view) => {
+    // Taller while it shows the enrolment's QR code, so the code, the typed code and the words fit.
+    overlay?.setContentSize(460, view.qr ? 680 : 360);
+    overlay?.webContents.send("unlock:view", view);
+  };
 
   /** @param {BrowserWindow} parent */
   function openOverlay(parent) {
@@ -244,8 +251,9 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
       onGo = null;
       show({
         title: "Add this computer on your phone",
-        lead: "On your iPhone: Settings → Security → Devices → Add a device, then type this code under the camera.",
+        lead: "On your phone: Settings → Security → Devices → Add a device, and scan this code. Can't scan? Tap Type the code instead and type the code below it.",
         button: null,
+        qr: qrRows(enrolmentQrText(enrolment.addId)),
         code: typedCode(enrolment.addId),
       });
       const poll = setInterval(async () => {

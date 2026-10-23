@@ -211,3 +211,13 @@ a.btn-primary {
   font-size: var(--type-subheading);
   letter-spacing: 0.08em;
 }
+
+/* The enrolment QR code in the unlock window: drawn dark on white whatever the theme. */
+.qr {
+  display: block;
+  margin: 0 auto 1rem;
+  width: 200px;
+  height: 200px;
+  image-rendering: pixelated;
+  border-radius: 8px;
+}
