@@ -30,23 +30,25 @@ Download the latest build for your system:
 
 | System | Download | First run |
 |---|---|---|
-| macOS (Apple Silicon) | [SageFin-Desktop-mac-arm64.dmg](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-mac-arm64.dmg) | Open it once, then System Settings → Privacy & Security → Open Anyway |
+| macOS (Apple Silicon) | [SageFin-Desktop-mac-arm64.dmg](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-mac-arm64.dmg) | Open it and drag SageFin Desktop to Applications |
 | Windows | [SageFin-Desktop-win-x64.exe](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-win-x64.exe) | "Windows protected your PC" → More info → Run anyway |
 | Linux | [SageFin-Desktop-linux-x86_64.AppImage](https://github.com/bytefoo/sagefin-desktop/releases/latest/download/SageFin-Desktop-linux-x86_64.AppImage) | Mark it executable and run it |
 
 Every version, with each file's SHA-256, is on [Releases](https://github.com/bytefoo/sagefin-desktop/releases).
 
-These are early test builds and **are not code-signed yet**, which is why each system warns about
-them. A warning you are asked to click through is a reason to be careful: every build here is made
-by the [release workflow](.github/workflows/release.yml) from this source, and you can check the
-file you downloaded against the SHA-256 on its release.
+These are early test builds. **The macOS app is signed with a Developer ID and notarized by
+Apple**, so it opens as any downloaded app does (earlier releases were not, and need Open
+Anyway in System Settings → Privacy & Security). **The Windows and Linux builds are not code-signed
+yet**, which is why those systems warn about them. A warning you are asked to click through is a
+reason to be careful: every build here is made by the [release workflow](.github/workflows/release.yml)
+from this source, and you can check the file you downloaded against the SHA-256 on its release.
 
 The app opens SageFin, where you need an account.
 
 **Updates.** On Windows and Linux the app updates itself: it downloads a new version in the
 background and installs it the next time it quits, or sooner if you choose Restart to Update from
-the tray icon. On macOS it cannot yet, because macOS only updates an app signed with a Developer
-ID; download the new build and install it over the old one.
+the tray icon. On macOS it does not yet: the builds are now signed, which macOS requires, but the
+app's updater is still off there. Download the new build and install it over the old one.
 
 ## Privacy and terms
 
@@ -378,10 +380,13 @@ address to resume at; the fingerprints make reading them again cheap.
 
 ## Private mode on this computer
 
-**Not released yet, and not usable yet:** the macOS key helper has to be built and signed with the
-app, which needs the Developer ID signing this app does not have yet. Until then nothing below
-happens on any computer, and a private household's window is unlocked by the member's phone, the
-way a browser's is.
+**Not released yet:** this is on its way to a release, and until it is in one, nothing below
+happens on any computer: a private household's window is unlocked by the member's phone, the way a
+browser's is. The macOS key helper is built and signed with the app by the release workflow
+(`native/macos/build.sh`): a small bundle in the app's `Contents/Helpers`, `SageFinKeys.app`, with
+its own copy of the app's Developer ID provisioning profile, because macOS honours the keychain
+entitlement it needs only with one. A build without the signing secrets (a fork, a pull request)
+leaves the helper out, and that Mac holds no key.
 
 In SageFin's private mode a household's data is encrypted with a key only its members' devices
 hold. On a Mac this app can be one of those devices, so its own window opens without reaching for
@@ -427,8 +432,9 @@ The update feed is this repository's latest published release: the release workf
 small manifest per system (`latest.yml`, `latest-linux.yml`) naming the version, the installer and
 its SHA-512, which the app checks the download against. The app looks once an hour while it runs;
 Check for Updates, on the tray icon and in the Retailers menu, looks now, and says what it found. An update is never installed
-during a sync; the tray says it is waiting. Until the builds are code-signed there is no signature to check
-beyond that hash, fetched over HTTPS from GitHub, and macOS does not update at all.
+during a sync; the tray says it is waiting. Windows and Linux builds are not code-signed, so there is
+no signature to check beyond that hash, fetched over HTTPS from GitHub, and macOS does not update
+itself yet.
 
 ## How it looks
 

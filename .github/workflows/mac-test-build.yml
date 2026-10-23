@@ -1,0 +1,122 @@
+name: mac-test-build
+
+# Run by hand on any branch: the macOS build exactly as a release makes it (signed, notarized and
+# stapled when the signing secrets are there), checked the way Gatekeeper will check it, and kept
+# as this run's artifact. Nothing is published, no release or tag is made, and the updater never
+# sees it. It is how a change to signing, entitlements or the key helper is tried before a release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-test-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # After npm ci, so no package's install script runs with the keychain unlocked.
+      - name: Set up signing
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: scripts/mac-signing.sh
+      - name: Build
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: scripts/mac-build.sh
+      # What a Mac checks when the app is opened, run against what was built. Each command's own
+      # output is the record; none of them prints anything secret.
+      - name: Check the signatures, notarization and entitlements
+        if: env.MAC_SIGNED == 'true'
+        run: |
+          app="dist/mac-arm64/SageFin Desktop.app"
+          helper="$app/Contents/Helpers/SageFinKeys.app"
+          dmg=$(ls dist/SageFin-Desktop-*.dmg)
+          set -x
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign --verify --strict --verbose=2 "$helper"
+          spctl -a -vv -t exec "$app"
+          spctl -a -vv -t open --context context:primary-signature "$dmg"
+          xcrun stapler validate "$app"
+          xcrun stapler validate "$dmg"
+          codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Timestamp|Runtime Version|CodeDirectory)'
+          codesign -dvv "$helper" 2>&1 | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Timestamp|Runtime Version|CodeDirectory)'
+          codesign -d --entitlements - --xml "$app"; echo
+          codesign -d --entitlements - --xml "$helper"; echo
+          test -f "$app/Contents/embedded.provisionprofile"
+          test -f "$helper/Contents/embedded.provisionprofile"
+          lipo -archs "$helper/Contents/MacOS/sagefin-keys"
+          set +x
+          # The app inside the disk image is the one people get: check that copy too.
+          mount=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$dmg" >/dev/null
+          spctl -a -vv -t exec "$mount/SageFin Desktop.app"
+          xcrun stapler validate "$mount/SageFin Desktop.app"
+          hdiutil detach "$mount" >/dev/null
+      # macOS refuses a restricted entitlement its profile does not allow by killing the program
+      # as it starts, and the keychain refuses to store an item for a program without one. The probe
+      # writes and removes an item that holds no key, so the helper answering it started, and used
+      # its keychain, as signed. No key is made here: that, and Touch ID, are for a real Mac.
+      - name: The key helper starts and can use its keychain
+        if: env.MAC_SIGNED == 'true'
+        run: |
+          helper="dist/mac-arm64/SageFin Desktop.app/Contents/Helpers/SageFinKeys.app/Contents/MacOS/sagefin-keys"
+          ask() { code=0; out=$(echo "{\"op\":\"$2\"}" | "$1" ci-check) || code=$?; echo "$2, exit $code: $out"; }
+          ask "$helper" public-keys
+          [ "$code" -eq 0 ] && [ "$out" = "{}" ] || { echo "::error::the key helper did not answer an empty set of keys"; exit 1; }
+          ask "$helper" probe
+          [ "$code" -eq 0 ] && [[ "$out" == *'"keychain":true'* ]] || { echo "::error::the key helper could not use its keychain"; exit 1; }
+          # The same program without its entitlements must be refused, or the probe proves nothing.
+          swiftc -O -target arm64-apple-macos13.0 -o "$RUNNER_TEMP/unentitled" native/macos/SageFinKeys.swift
+          ask "$RUNNER_TEMP/unentitled" probe
+          [ "$out" = '{"error":"keychain"}' ] || { echo "::error::a helper with no keychain entitlement was not refused, so the probe shows nothing"; exit 1; }
+      # The manifest the updater reads describes the disk image as published, stapled ticket and all.
+      - name: latest-mac.yml matches the files
+        run: |
+          for f in dist/SageFin-Desktop-*.dmg dist/SageFin-Desktop-*.zip; do
+            hash=$(openssl dgst -sha512 -binary "$f" | base64)
+            if grep -qF "sha512: $hash" dist/latest-mac.yml; then echo "$(basename "$f"): matches"; else
+              echo "::error::latest-mac.yml has a different SHA-512 for $(basename "$f")"; exit 1; fi
+          done
+      # Signing can succeed and the app still not start under the hardened runtime: an entitlement
+      # it needs and was not given only shows when it runs. Still running after fifteen seconds is
+      # the pass.
+      - name: The signed app starts
+        run: |
+          "dist/mac-arm64/SageFin Desktop.app/Contents/MacOS/SageFin Desktop" > run.log 2>&1 &
+          pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2>/dev/null; then
+            tail -30 run.log
+            echo "::error::the packaged app exited by itself"
+            exit 1
+          fi
+          kill "$pid"
+          tail -10 run.log
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SageFin-Desktop-mac-arm64
+          path: |
+            dist/SageFin-Desktop-*.dmg
+            dist/SageFin-Desktop-*.zip
+            dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove the signing files
+        if: always()
+        run: scripts/mac-signing-end.sh

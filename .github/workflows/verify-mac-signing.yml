@@ -1,0 +1,112 @@
+name: verify-mac-signing
+
+# Run by hand, after the macOS signing secrets are added or replaced. It checks that they fit
+# together before a build depends on them, and prints only what is not secret: the certificate's
+# name, team and fingerprint, the profile's name, team, App ID, type and expiry, whether the
+# profile names the certificate, and whether Apple accepts the notarization key. Nothing it writes
+# outlives the job: the keychain and the files are deleted at the end, pass or fail.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - name: Every secret is set
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+        run: |
+          missing=0
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY APPLE_API_KEY_ID APPLE_API_ISSUER MAC_PROVISIONING_PROFILE; do
+            if [ -z "${!name}" ]; then echo "::error::$name is not set"; missing=1; else echo "$name: set"; fi
+          done
+          echo "WORK=$RUNNER_TEMP/signing" >> "$GITHUB_ENV"
+          exit $missing
+
+      - name: The certificate opens with its password
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$WORK"
+          printf '%s' "$CSC_LINK" | base64 -D > "$WORK/cert.p12"
+          # A throwaway password for a throwaway keychain, never printed.
+          kc_pass=$(uuidgen)
+          kc="$WORK/verify.keychain-db"
+          security create-keychain -p "$kc_pass" "$kc"
+          security unlock-keychain -p "$kc_pass" "$kc"
+          if ! security import "$WORK/cert.p12" -k "$kc" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign >/dev/null 2>&1; then
+            echo "::error::the .p12 did not import: the password does not open it, or CSC_LINK is not a base64 .p12"
+            exit 1
+          fi
+          echo "Imported."
+          security find-identity -p codesigning "$kc" || true
+          security find-certificate -a -c "Developer ID Application" -p "$kc" > "$WORK/cert.pem"
+          if [ ! -s "$WORK/cert.pem" ]; then
+            echo "::error::the .p12 holds no 'Developer ID Application' certificate"
+            exit 1
+          fi
+          openssl x509 -in "$WORK/cert.pem" -noout -subject -issuer -enddate
+          openssl x509 -in "$WORK/cert.pem" -noout -fingerprint -sha1 | tr -d ':' | sed 's/.*=/SHA-1 /' | tee "$WORK/cert.sha1"
+
+      - name: The profile is a Developer ID profile for this App ID, naming the certificate
+        env:
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+        run: |
+          printf '%s' "$MAC_PROVISIONING_PROFILE" | base64 -D > "$WORK/profile.provisionprofile"
+          security cms -D -i "$WORK/profile.provisionprofile" > "$WORK/profile.plist"
+          python3 - "$WORK/profile.plist" "$WORK/cert.sha1" <<'PY'
+          import hashlib, plistlib, sys
+          p = plistlib.load(open(sys.argv[1], "rb"))
+          want = open(sys.argv[2]).read().split()[-1].upper()
+          ent = p.get("Entitlements", {})
+          print("Name:", p.get("Name"))
+          print("AppIDName:", p.get("AppIDName"))
+          print("TeamIdentifier:", p.get("TeamIdentifier"))
+          print("TeamName:", p.get("TeamName"))
+          print("Platform:", p.get("Platform"))
+          print("ProvisionsAllDevices:", p.get("ProvisionsAllDevices"))
+          print("ProvisionedDevices:", len(p.get("ProvisionedDevices", [])))
+          print("CreationDate:", p.get("CreationDate"))
+          print("ExpirationDate:", p.get("ExpirationDate"))
+          print("Entitlements:")
+          for k in sorted(ent):
+              print("  ", k, "=", ent[k])
+          shas = [hashlib.sha1(c).hexdigest().upper() for c in p.get("DeveloperCertificates", [])]
+          print("DeveloperCertificates:", len(shas))
+          print("Includes the .p12's certificate:", want in shas)
+          ok = want in shas and p.get("ProvisionsAllDevices") is True
+          sys.exit(0 if ok else 1)
+          PY
+
+      - name: Apple accepts the notarization key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          key="$WORK/AuthKey.p8"
+          printf '%s\n' "$APPLE_API_KEY" > "$key"
+          if grep -q 'BEGIN PRIVATE KEY' "$key"; then echo "APPLE_API_KEY is the .p8's text."; else echo "::warning::APPLE_API_KEY does not look like a .p8's text"; fi
+          if xcrun notarytool history --key "$key" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" >/dev/null 2>"$WORK/notary.err"; then
+            echo "Notarization credentials: accepted"
+          else
+            # notarytool's own reason, which names no secret (GitHub masks the key ID and issuer).
+            tail -3 "$WORK/notary.err"
+            echo "::error::Notarization credentials: refused (key, key ID or issuer is wrong, or the key lacks access)"
+            exit 1
+          fi
+
+      - name: Remove everything this job wrote
+        if: always()
+        run: |
+          security delete-keychain "$WORK/verify.keychain-db" 2>/dev/null || true
+          rm -rf "$WORK"

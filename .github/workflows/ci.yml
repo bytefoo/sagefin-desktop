@@ -90,6 +90,15 @@ jobs:
           fi
           exit $status
 
+  # The key helper compiles, with no warnings, for the Macs the app runs on. Signing it needs the
+  # release's secrets, so this only builds it; the mac-test-build workflow signs and runs it.
+  helper:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - run: native/macos/build.sh
+      - run: lipo -archs native/macos/build/SageFinKeys.app/Contents/MacOS/sagefin-keys
+
   # The same packaging a release does, without an installer and without publishing, so a change
   # that breaks the build is found on its pull request and not on a tag.
   pack:

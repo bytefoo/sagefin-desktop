@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    The helper keeps the Enclave's wrapped keys in the data protection keychain, which needs a
+    keychain access group, and on macOS that is a restricted entitlement: it is honoured only when
+    a provisioning profile embedded in the same bundle allows it. The profile is the app's own
+    Developer ID profile, for the App ID app.sagefin.desktop, so the helper claims that App ID and
+    one access group under it. J66FLD86SU is the team that signs SageFin Desktop.
+    No hardened-runtime exception is claimed: the helper runs no JIT and loads nothing.
+  -->
+  <key>com.apple.application-identifier</key>
+  <string>J66FLD86SU.app.sagefin.desktop</string>
+  <key>com.apple.developer.team-identifier</key>
+  <string>J66FLD86SU</string>
+  <key>keychain-access-groups</key>
+  <array>
+    <string>J66FLD86SU.app.sagefin.desktop</string>
+  </array>
+</dict>
+</plist>

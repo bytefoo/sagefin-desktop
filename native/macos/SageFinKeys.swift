@@ -6,7 +6,8 @@
 // private key: the Enclave's keys cannot leave it, and what is kept in the keychain is the
 // Enclave's own wrapped form, which opens on this Mac's Enclave and nowhere else.
 //
-//   sagefin-keys <service>                      then {"op":"public-keys"} or {"op":"create"}
+//   sagefin-keys <service>                      then {"op":"public-keys"}, {"op":"create"} or
+//                                                 {"op":"probe"}
 //   sagefin-keys <service> --approve <sentence>  then {"op":"presence"}, {"op":"agree","peer":…},
 //                                                 {"op":"sign","bytes":…}: at most one agreement,
 //                                                 then one signature, which ends the approval
@@ -17,8 +18,9 @@
 // of each and ends. It refuses while the screen is locked, which macOS reports as the context
 // failing to evaluate.
 //
-// NOT BUILT OR RUN YET. It needs the app to be signed with a Developer ID and the keychain
-// entitlement, a build step in the release workflow, and a run on a Mac with Touch ID.
+// Built by native/macos/build.sh into SageFinKeys.app, which the signed macOS build carries in
+// Contents/Helpers. It is a bundle, not a bare program, because the keychain entitlement it needs
+// is one macOS only honours with a provisioning profile, and a profile lives in a bundle.
 
 import CryptoKit
 import Foundation
@@ -44,7 +46,9 @@ let service = "app.sagefin.desktop.private-mode.\(arguments[1])"
 
 // ── The keychain holds the Enclave's wrapped keys, this device only ──────────────────────────
 
-func stored(_ account: String) -> Data? {
+/// The wrapped key under `account`, nil when there is none. A keychain that cannot be read is a
+/// failure, not "no keys": answering it as none would have the app make new keys over old ones.
+func stored(_ account: String) throws -> Data? {
     let query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
@@ -53,7 +57,15 @@ func stored(_ account: String) -> Data? {
         kSecUseDataProtectionKeychain as String: true,
     ]
     var item: CFTypeRef?
-    return SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess ? item as? Data : nil
+    switch SecItemCopyMatching(query as CFDictionary, &item) {
+    case errSecSuccess:
+        guard let data = item as? Data else { throw Failure(code: "keychain") }
+        return data
+    case errSecItemNotFound:
+        return nil
+    default:
+        throw Failure(code: "keychain")
+    }
 }
 
 func store(_ account: String, _ data: Data) throws {
@@ -70,6 +82,23 @@ func store(_ account: String, _ data: Data) throws {
     guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { throw Failure(code: "keychain") }
 }
 
+/// Whether this program may keep items in its keychain, found by writing and removing one that
+/// holds no key, and whether this Mac has a Secure Enclave. Reading cannot tell: a program with no
+/// keychain entitlement is told an item is not there, exactly as one with it is told on a Mac that
+/// holds no keys yet. Writing is refused without the entitlement, so this is what shows the
+/// signature, entitlements and profile work together, where no Enclave is there to make keys in.
+func probe() throws -> [String: Any] {
+    try store("probe", Data("probe".utf8))
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: "probe",
+        kSecUseDataProtectionKeychain as String: true,
+    ]
+    guard SecItemDelete(query as CFDictionary) == errSecSuccess else { throw Failure(code: "keychain") }
+    return ["keychain": true, "secureEnclave": SecureEnclave.isAvailable]
+}
+
 /// Each use of a key needs a person: the Enclave refuses a key operation without a context that
 /// Touch ID or the login password satisfied.
 func accessControl() throws -> SecAccessControl {
@@ -83,11 +112,13 @@ func accessControl() throws -> SecAccessControl {
 func x963(_ key: P256.KeyAgreement.PublicKey) -> String { key.x963Representation.base64EncodedString() }
 func x963(_ key: P256.Signing.PublicKey) -> String { key.x963Representation.base64EncodedString() }
 
-func publicKeys() -> [String: Any] {
-    guard let agreementData = stored("agreement"), let signingData = stored("signing"),
-          let agreement = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: agreementData),
+/// Both public keys, or an empty answer when this Mac holds none. Keys that are stored and will not
+/// open are a failure: they were made by another Enclave, or the keychain item is damaged.
+func publicKeys() throws -> [String: Any] {
+    guard let agreementData = try stored("agreement"), let signingData = try stored("signing") else { return [:] }
+    guard let agreement = try? SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: agreementData),
           let signing = try? SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: signingData)
-    else { return [:] }
+    else { throw Failure(code: "keys-unreadable") }
     return ["agreementPublicKey": x963(agreement.publicKey), "signingPublicKey": x963(signing.publicKey)]
 }
 
@@ -114,8 +145,9 @@ if arguments.count == 2 {
     guard let step = readStep(), let op = step["op"] as? String else { fail("usage") }
     do {
         switch op {
-        case "public-keys": answer(publicKeys())
+        case "public-keys": answer(try publicKeys())
         case "create": answer(try create())
+        case "probe": answer(try probe())
         default: fail("usage")
         }
     } catch let failure as Failure {
@@ -132,24 +164,25 @@ guard arguments.count == 4, arguments[2] == "--approve", !arguments[3].isEmpty e
 let sentence = arguments[3]
 
 guard let first = readStep(), first["op"] as? String == "presence" else { fail("usage") }
+/// What macOS's prompt answered, set on its queue and read after the semaphore.
+final class Approval: @unchecked Sendable { var granted = false }
+
 let context = LAContext()
 context.touchIDAuthenticationAllowableReuseDuration = 0
-var approved = false
+let approval = Approval()
 let asked = DispatchSemaphore(value: 0)
-// macOS shows: "SageFin Desktop is trying to <sentence>."
+// macOS shows: "SageFin Desktop is trying to <sentence>." (the name is this bundle's
+// CFBundleDisplayName, in native/macos/Info.plist).
 context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: sentence) { ok, _ in
-    approved = ok
+    approval.granted = ok
     asked.signal()
 }
 asked.wait()
-guard approved else { fail("cancelled") }
+guard approval.granted else { fail("cancelled") }
 answer(["presence": true])
 
-// Thirty seconds, then the context is spent whatever is left.
-DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
-    context.invalidate()
-    exit(0)
-}
+// Thirty seconds, then the process ends whatever is left, and the context with it.
+DispatchQueue.global().asyncAfter(deadline: .now() + 30) { exit(0) }
 
 var agreed = false
 var signed = false
@@ -158,14 +191,14 @@ while let step = readStep(), let op = step["op"] as? String {
         switch op {
         case "agree" where !agreed:
             agreed = true
-            guard let data = stored("agreement"), let peerText = step["peer"] as? String, let peer = Data(base64Encoded: peerText)
+            guard let data = try stored("agreement"), let peerText = step["peer"] as? String, let peer = Data(base64Encoded: peerText)
             else { throw Failure(code: "no-keys") }
             let key = try SecureEnclave.P256.KeyAgreement.PrivateKey(dataRepresentation: data, authenticationContext: context)
             let shared = try key.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: peer))
             answer(["agreement": shared.withUnsafeBytes { Data($0) }.base64EncodedString()])
         case "sign" where !signed:
             signed = true
-            guard let data = stored("signing"), let bytesText = step["bytes"] as? String, let bytes = Data(base64Encoded: bytesText)
+            guard let data = try stored("signing"), let bytesText = step["bytes"] as? String, let bytes = Data(base64Encoded: bytesText)
             else { throw Failure(code: "no-keys") }
             let key = try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data, authenticationContext: context)
             answer(["signature": try key.signature(for: bytes).rawRepresentation.base64EncodedString()])

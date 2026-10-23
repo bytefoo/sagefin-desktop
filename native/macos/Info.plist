@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>app.sagefin.desktop.keys</string>
+  <key>CFBundleExecutable</key>
+  <string>sagefin-keys</string>
+  <!-- macOS's Touch ID sheet names the program asking by this: "SageFin Desktop is trying to …". -->
+  <key>CFBundleName</key>
+  <string>SageFin Desktop</string>
+  <key>CFBundleDisplayName</key>
+  <string>SageFin Desktop</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <!-- Set to package.json's version by build.sh. -->
+  <key>CFBundleShortVersionString</key>
+  <string>0.0.0</string>
+  <key>CFBundleVersion</key>
+  <string>0.0.0</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+  <!-- Started by the app for one request at a time; never in the Dock, never opened by a person. -->
+  <key>LSUIElement</key>
+  <true/>
+  <key>LSBackgroundOnly</key>
+  <true/>
+</dict>
+</plist>

@@ -41,15 +41,21 @@ jobs:
           echo "Version $version" >> "$GITHUB_STEP_SUMMARY"
       - name: Test
         run: node --test "lib/*.test.mjs"
+      # Whether the macOS build will be signed is decided by the same secret its build checks.
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
+          MAC_SIGNED: ${{ secrets.CSC_LINK != '' }}
         run: |
+          if [ "$MAC_SIGNED" = "true" ]; then
+            notes="Test build. The macOS app is signed with a Developer ID and notarized by Apple. Windows and Linux are not code-signed: see the readme for what each asks on first run."
+          else
+            notes="Test build. Not code-signed: see the readme for what each system asks on first run."
+          fi
           gh release view "v$VERSION" >/dev/null 2>&1 \
             || gh release create "v$VERSION" --draft --target "$GITHUB_SHA" --title "v$VERSION" \
-                 --notes "Test build. Not code-signed: see the readme for what each system asks on first run." \
-                 --generate-notes
+                 --notes "$notes" --generate-notes
 
   build:
     needs: draft
@@ -72,13 +78,42 @@ jobs:
       # Stamped into this job's copy only, never committed: the built app reads its version from it.
       - name: Set the version
         run: npm pkg set version=${{ needs.draft.outputs.version }}
-      # Signing is not set up yet. The macOS build is ad-hoc signed (package.json, mac.identity),
-      # and this stops electron-builder looking for a certificate in the runner's keychain.
+      # Windows and Linux are not code-signed. This stops electron-builder looking for a
+      # certificate, and it uploads their files and update manifests to the draft itself.
       - name: Build and attach to the draft
+        if: runner.os != 'macOS'
         env:
           GH_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --publish always
+      # macOS is signed with the Developer ID and notarized when the signing secrets are set, and
+      # ad-hoc signed as before when they are not (scripts/mac-signing.sh). After npm ci, so no
+      # package's install script runs with the keychain unlocked.
+      - name: Set up macOS signing
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: scripts/mac-signing.sh
+      # Built without publishing, because the disk image is stapled after electron-builder has
+      # hashed it (scripts/mac-build.sh); then attached with the manifest that describes it.
+      - name: Build macOS and attach to the draft
+        if: runner.os == 'macOS'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          TAG: v${{ needs.draft.outputs.version }}
+        run: |
+          scripts/mac-build.sh
+          gh release upload "$TAG" dist/SageFin-Desktop-* dist/latest-mac.yml --clobber
+      - name: Remove the macOS signing files
+        if: always() && runner.os == 'macOS'
+        run: scripts/mac-signing-end.sh
       # A signed statement that these exact files were built by this workflow, from this commit of
       # this repository. It is not code signing: the systems' first-run warnings are unchanged. It
       # is what lets anyone check a download with `gh attestation verify`, as the readme shows.
