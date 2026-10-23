@@ -7,10 +7,6 @@ name: verify-mac-signing
 # outlives the job: the keychain and the files are deleted at the end, pass or fail.
 on:
   workflow_dispatch:
-  # Until this file is on main, GitHub cannot dispatch it; a push to this branch runs it instead.
-  push:
-    branches: [mac-signing]
-    paths: [.github/workflows/verify-mac-signing.yml]
 
 permissions:
   contents: read

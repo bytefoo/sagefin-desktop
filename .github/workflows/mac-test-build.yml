@@ -6,9 +6,6 @@ name: mac-test-build
 # sees it. It is how a change to signing, entitlements or the key helper is tried before a release.
 on:
   workflow_dispatch:
-  # Until this file is on main, GitHub cannot dispatch it; a push to this branch runs it instead.
-  push:
-    branches: [mac-signing]
 
 permissions:
   contents: read
@@ -59,8 +56,8 @@ jobs:
           xcrun stapler validate "$dmg"
           codesign -dvv "$app" 2>&1 | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Timestamp|Runtime Version|CodeDirectory)'
           codesign -dvv "$helper" 2>&1 | grep -E '^(Identifier|Format|Authority|TeamIdentifier|Timestamp|Runtime Version|CodeDirectory)'
-          codesign -d --entitlements :- "$app"
-          codesign -d --entitlements :- "$helper"
+          codesign -d --entitlements - --xml "$app"; echo
+          codesign -d --entitlements - --xml "$helper"; echo
           test -f "$app/Contents/embedded.provisionprofile"
           test -f "$helper/Contents/embedded.provisionprofile"
           lipo -archs "$helper/Contents/MacOS/sagefin-keys"
@@ -85,6 +82,23 @@ jobs:
             echo "::error::the key helper did not answer an empty set of keys"
             exit 1
           fi
+          # The same program without its entitlements must fail, or the check above proves nothing.
+          swiftc -O -target arm64-apple-macos13.0 -o "$RUNNER_TEMP/unentitled" native/macos/SageFinKeys.swift
+          code=0
+          out=$(echo '{"op":"public-keys"}' | "$RUNNER_TEMP/unentitled" ci-check) || code=$?
+          echo "without entitlements, exit $code: $out"
+          if [ "$out" != '{"error":"keychain"}' ]; then
+            echo "::error::a helper with no keychain entitlement was not refused, so the check above shows nothing"
+            exit 1
+          fi
+      # The manifest the updater reads describes the disk image as published, stapled ticket and all.
+      - name: latest-mac.yml matches the files
+        run: |
+          for f in dist/SageFin-Desktop-*.dmg dist/SageFin-Desktop-*.zip; do
+            hash=$(openssl dgst -sha512 -binary "$f" | base64)
+            if grep -qF "sha512: $hash" dist/latest-mac.yml; then echo "$(basename "$f"): matches"; else
+              echo "::error::latest-mac.yml has a different SHA-512 for $(basename "$f")"; exit 1; fi
+          done
       # Signing can succeed and the app still not start under the hardened runtime: an entitlement
       # it needs and was not given only shows when it runs. Still running after fifteen seconds is
       # the pass.
