@@ -6,7 +6,8 @@
 // private key: the Enclave's keys cannot leave it, and what is kept in the keychain is the
 // Enclave's own wrapped form, which opens on this Mac's Enclave and nowhere else.
 //
-//   sagefin-keys <service>                      then {"op":"public-keys"} or {"op":"create"}
+//   sagefin-keys <service>                      then {"op":"public-keys"}, {"op":"create"} or
+//                                                 {"op":"probe"}
 //   sagefin-keys <service> --approve <sentence>  then {"op":"presence"}, {"op":"agree","peer":…},
 //                                                 {"op":"sign","bytes":…}: at most one agreement,
 //                                                 then one signature, which ends the approval
@@ -81,6 +82,23 @@ func store(_ account: String, _ data: Data) throws {
     guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { throw Failure(code: "keychain") }
 }
 
+/// Whether this program may keep items in its keychain, found by writing and removing one that
+/// holds no key, and whether this Mac has a Secure Enclave. Reading cannot tell: a program with no
+/// keychain entitlement is told an item is not there, exactly as one with it is told on a Mac that
+/// holds no keys yet. Writing is refused without the entitlement, so this is what shows the
+/// signature, entitlements and profile work together, where no Enclave is there to make keys in.
+func probe() throws -> [String: Any] {
+    try store("probe", Data("probe".utf8))
+    let query: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: "probe",
+        kSecUseDataProtectionKeychain as String: true,
+    ]
+    guard SecItemDelete(query as CFDictionary) == errSecSuccess else { throw Failure(code: "keychain") }
+    return ["keychain": true, "secureEnclave": SecureEnclave.isAvailable]
+}
+
 /// Each use of a key needs a person: the Enclave refuses a key operation without a context that
 /// Touch ID or the login password satisfied.
 func accessControl() throws -> SecAccessControl {
@@ -129,6 +147,7 @@ if arguments.count == 2 {
         switch op {
         case "public-keys": answer(try publicKeys())
         case "create": answer(try create())
+        case "probe": answer(try probe())
         default: fail("usage")
         }
     } catch let failure as Failure {

@@ -69,28 +69,22 @@ jobs:
           xcrun stapler validate "$mount/SageFin Desktop.app"
           hdiutil detach "$mount" >/dev/null
       # macOS refuses a restricted entitlement its profile does not allow by killing the program
-      # as it starts, and the keychain refuses a missing one with an error. Either fails here: a
-      # helper that answers an empty set of keys started, and read the keychain, as signed.
-      - name: The key helper starts and can read its keychain
+      # as it starts, and the keychain refuses to store an item for a program without one. The probe
+      # writes and removes an item that holds no key, so the helper answering it started, and used
+      # its keychain, as signed. A runner has no Secure Enclave, so no key is made here.
+      - name: The key helper starts and can use its keychain
         if: env.MAC_SIGNED == 'true'
         run: |
           helper="dist/mac-arm64/SageFin Desktop.app/Contents/Helpers/SageFinKeys.app/Contents/MacOS/sagefin-keys"
-          code=0
-          out=$(echo '{"op":"public-keys"}' | "$helper" ci-check) || code=$?
-          echo "exit $code: $out"
-          if [ "$code" -ne 0 ] || [ "$out" != "{}" ]; then
-            echo "::error::the key helper did not answer an empty set of keys"
-            exit 1
-          fi
-          # The same program without its entitlements must fail, or the check above proves nothing.
+          ask() { code=0; out=$(echo "{\"op\":\"$2\"}" | "$1" ci-check) || code=$?; echo "$2, exit $code: $out"; }
+          ask "$helper" public-keys
+          [ "$code" -eq 0 ] && [ "$out" = "{}" ] || { echo "::error::the key helper did not answer an empty set of keys"; exit 1; }
+          ask "$helper" probe
+          [ "$code" -eq 0 ] && [[ "$out" == *'"keychain":true'* ]] || { echo "::error::the key helper could not use its keychain"; exit 1; }
+          # The same program without its entitlements must be refused, or the probe proves nothing.
           swiftc -O -target arm64-apple-macos13.0 -o "$RUNNER_TEMP/unentitled" native/macos/SageFinKeys.swift
-          code=0
-          out=$(echo '{"op":"public-keys"}' | "$RUNNER_TEMP/unentitled" ci-check) || code=$?
-          echo "without entitlements, exit $code: $out"
-          if [ "$out" != '{"error":"keychain"}' ]; then
-            echo "::error::a helper with no keychain entitlement was not refused, so the check above shows nothing"
-            exit 1
-          fi
+          ask "$RUNNER_TEMP/unentitled" probe
+          [ "$out" = '{"error":"keychain"}' ] || { echo "::error::a helper with no keychain entitlement was not refused, so the probe shows nothing"; exit 1; }
       # The manifest the updater reads describes the disk image as published, stapled ticket and all.
       - name: latest-mac.yml matches the files
         run: |
