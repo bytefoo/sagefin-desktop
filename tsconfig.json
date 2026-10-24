@@ -11,5 +11,5 @@
     "types": ["node"],
     "skipLibCheck": true
   },
-  "include": ["main", "lib", "renderer", "scripts", "fuzz"]
+  "include": ["main", "lib", "renderer", "scripts", "fuzz", "native"]
 }

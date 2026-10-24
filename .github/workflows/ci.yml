@@ -99,6 +99,29 @@ jobs:
       - run: native/macos/build.sh
       - run: lipo -archs native/macos/build/SageFinKeys.app/Contents/MacOS/sagefin-keys
 
+  # The Windows key helper builds, as one native program, and starts: it answers a probe and
+  # refuses a malformed request. A hosted runner has no Windows Hello, so the helper's own TPM
+  # check (--self-test) and native/windows/hello-check.mjs are run on a real computer instead.
+  windows-helper:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - shell: bash
+        run: native/windows/build.sh
+      - name: The helper starts and answers
+        shell: bash
+        run: |
+          helper=native/windows/build/sagefin-keys.exe
+          probe=$(echo '{"op":"probe"}' | "$helper" prod)
+          echo "$probe"
+          node -e 'const a = JSON.parse(process.argv[1]); for (const k of ["tpm", "windowsHello", "remoteSession"]) if (typeof a[k] !== "boolean") process.exit(1)' "$probe"
+          usage=$(echo '{"op":"probe"}' | "$helper" "Not A Site" || true)
+          echo "$usage"
+          [ "$usage" = '{"error":"usage"}' ]
+
   # The same packaging a release does, without an installer and without publishing, so a change
   # that breaks the build is found on its pull request and not on a tag.
   pack:

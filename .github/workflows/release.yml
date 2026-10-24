@@ -78,6 +78,16 @@ jobs:
       # Stamped into this job's copy only, never committed: the built app reads its version from it.
       - name: Set the version
         run: npm pkg set version=${{ needs.draft.outputs.version }}
+      # The key helper, which electron-builder carries into the app's resources folder. Not
+      # code-signed, as the installer is not: there is no Windows signing certificate yet.
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: 10.0.x
+      - name: Build the Windows key helper
+        if: runner.os == 'Windows'
+        shell: bash
+        run: native/windows/build.sh
       # Windows and Linux are not code-signed. This stops electron-builder looking for a
       # certificate, and it uploads their files and update manifests to the draft itself.
       - name: Build and attach to the draft
@@ -86,6 +96,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --publish always
+      # electron-builder skips an extra resource that is not there, so a helper that failed to
+      # build would ship a Windows app that holds no key, and say nothing. The release stays a
+      # draft when this fails.
+      - name: The Windows app carries its key helper
+        if: runner.os == 'Windows'
+        shell: bash
+        run: test -f dist/win-unpacked/resources/sagefin-keys.exe
       # macOS is signed with the Developer ID and notarized when the signing secrets are set, and
       # ad-hoc signed as before when they are not (scripts/mac-signing.sh). After npm ci, so no
       # package's install script runs with the keychain unlocked.
