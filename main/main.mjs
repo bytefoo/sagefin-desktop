@@ -303,6 +303,7 @@ async function start() {
     privateMode: {
       holdsKeyFor: (householdId) => privateMode?.holdsKeyFor(householdId) ?? false,
       canHoldKey: () => privateMode?.canHoldKey() ?? false,
+      unlockHere: async (/** @type {unknown} */ householdId) => (await privateMode?.pageAsksToUnlockHere(householdId)) ?? "not-now",
       showUnlock: async () => (await privateMode?.pageAsksToUnlock()) ?? false,
       startAdding: async () => (await privateMode?.pageAsksToAdd()) ?? false,
     },

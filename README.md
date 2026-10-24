@@ -407,16 +407,24 @@ without reaching for the phone. What it holds itself to, in this source:
 - **It asks you every time.** Each unlock is one prompt, one key agreement and one signature, with
   a sentence from a fixed list in `lib/private-mode.mjs`. Never while the screen is locked, the
   window hidden or behind another, or another prompt is showing.
-- **The page cannot use the key.** The window shows SageFin's web app, which SageFin's server
-  serves, so nothing the page asks for counts as you. Unlocking starts from the app's own unlock
-  window (a page from the app's own files, `renderer/unlock.html`) or its menu, never from the
-  bridge, and the bridge has no call for it. The page may ask the bridge three things, and none
-  uses the key: whether this computer holds a key of the household it names (a yes or no; no key,
-  device id or anything else comes back), to show the app's unlock window, and to start adding
-  this computer as the menu does. The last two are carried out only straight after a press on the
-  page, with its window in front and the screen unlocked, and never twice within ten seconds
-  (`whyIgnorePageAsk`), so a page cannot keep the window in front of you. What unlocks is still
-  the window's own button and the operating system's prompt.
+- **The page may ask; only the operating system's prompt approves.** The window shows SageFin's
+  web app, which SageFin's server serves, so nothing the page asks for counts as you. The page may
+  ask the bridge four things: whether this computer holds a key of the household it names (a yes
+  or no; no key, device id or anything else comes back); to unlock this window, which is what its
+  **Unlock with Touch ID on this computer** (or **Windows Hello**) button does; to show the app's
+  unlock window; and to start adding this computer as the menu does. An unlock the page asks for
+  goes straight to Touch ID or Windows Hello, and on approval is the same unlock the unlock
+  window's own button runs (`unlockAskedByPage`): this window only, with the fixed sentence for
+  it, and only for the household this computer holds a key of. The page sends nothing that is
+  put in the prompt or the request, and hears back only how it ended (`unlocked`, `cancelled`,
+  `refused`, `failed` or `not-now`). The last three asks are carried out only straight after a
+  real press on the page (`navigator.userActivation`, which a script cannot fake), with its window
+  in front and the screen unlocked, with no prompt or unlock window already showing, and never
+  twice within ten seconds (`whyIgnorePageAsk`), so a page cannot keep a prompt in front of you.
+  A page can therefore put the prompt in front of you once after you pressed something on it;
+  it can never answer it. Unlocking also starts from the app's own unlock window (a page from the
+  app's own files, `renderer/unlock.html`), which opens by itself when the window comes up
+  locked, and from its menu.
 - **It unlocks its own window, and Sync and lock, and nothing else.** The app asks SageFin for an
   unlock on the window's own sign-in, checks the answer says that sign-in asked, and approves it
   on the same sign-in. It never takes a request id from anywhere else, so it can never let in a
@@ -477,8 +485,10 @@ key. The helper (`native/windows/`) joins the two:
 - **Removing or resetting Windows Hello removes the key.** Windows deletes Windows Hello keys with
   the PIN, and the TPM keys cannot open without it. The computer then holds no key, and you add
   it again from your phone.
-- **Windows Hello's prompt does not say what it is for.** It shows Windows's own words; the
-  sentence from `lib/private-mode.mjs` is on the app's unlock window, in front of it.
+- **Windows Hello's prompt does not say what it is for.** It shows Windows's own words. The
+  sentence from `lib/private-mode.mjs` is on the app's unlock window, in front of it, when that
+  window started it; when the locked page's own Unlock with Windows Hello button did, what says
+  what for is that button, which only ever unlocks this window.
 - **The helper is not code-signed**, as the installer is not.
 
 To check it on a Windows computer with a TPM and Windows Hello set up, at the computer itself:
