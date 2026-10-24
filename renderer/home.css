@@ -226,3 +226,72 @@ a.btn-primary {
 .qr[hidden] {
   display: none;
 }
+
+/*
+  The strip above a retailer's page while the member sets up their history (renderer/strip.html).
+  It is the app's own page in its own view: nothing of it is drawn on the retailer's page.
+*/
+body.strip {
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.strip main {
+  max-width: none;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+}
+
+.strip-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.strip-progress {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-target,
+.strip-note {
+  color: var(--muted-foreground);
+  font-size: var(--type-caption);
+  line-height: var(--type-caption-lh);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-target.covered {
+  color: var(--primary);
+  font-weight: 500;
+}
+
+/* The retailers window's history line and its two ways of setting it up again. */
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.history-actions input[type="date"] {
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--card);
+  color: var(--card-foreground);
+  font: inherit;
+  font-size: var(--type-caption);
+}
+
+.history-actions .btn-secondary {
+  padding: 0.25rem 0.75rem;
+  font-size: var(--type-caption);
+}

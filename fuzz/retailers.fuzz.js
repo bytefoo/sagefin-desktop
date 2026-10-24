@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
-import { RETAILERS, amazon, listSignature, walmart, windowTitle } from "../lib/retailers.mjs";
+import { RETAILERS, amazon, walmart, windowTitle } from "../lib/retailers.mjs";
 
 // A hundred pages, the default, is too few to reach the code behind the first pattern: with it,
 // three deliberate breaks of lib/retailers.mjs went unreported. Two thousand takes under a second.
@@ -94,7 +94,42 @@ const walmartPage = fc.oneof(
   walmartHistory.map((purchaseHistory) => JSON.stringify({ data: { purchaseHistory } })),
 );
 
-const page = fc.oneof(amazonPage, walmartPage);
+// Your Payments' own get-transactions answer, with anything at all where the app expects a value.
+const amazonCharge = fc.oneof(
+  anything,
+  fc.record(
+    {
+      formattedAmount: fc.oneof(anything, fc.constantFrom("-$23.04", "+$5.00", "$1,234.56", "-$0.99")),
+      formattedDate: fc.oneof(anything, fc.constantFrom("Oct 19, 2026", "Sept 1, 2026", "May 3, 2025")),
+      orderData: fc.oneof(
+        anything,
+        fc.array(
+          fc.oneof(
+            anything,
+            fc.record(
+              {
+                orderDisplayString: fc.oneof(anything, fc.string(), fc.stringMatching(/^\d{3}-\d{7}-\d{7}$/).map((id) => `Order #${id}`), fc.constant("Order #D01-0000002-0000002")),
+                orderDetailsUrl: fc.oneof(anything, fc.webUrl(), fc.stringMatching(/^\d{3}-\d{7}-\d{7}$/).map((id) => `https://www.amazon.com/gp/css/summary/edit.html?orderID=${id}`)),
+              },
+              { requiredKeys: [] },
+            ),
+          ),
+          { maxLength: 3 },
+        ),
+      ),
+      statusInfo: fc.oneof(anything, fc.record({ label: fc.oneof(anything, fc.constantFrom("Charged", "Pending", "Refunded")), status: anything }, { requiredKeys: [] })),
+    },
+    { requiredKeys: [] },
+  ),
+);
+const amazonAnswer = fc.oneof(
+  anything.map((v) => JSON.stringify(v)),
+  fc
+    .record({ transactionsList: fc.oneof(anything, fc.array(amazonCharge, { maxLength: 20 })), lastEvaluatedKey: anything }, { requiredKeys: [] })
+    .map((displayResponse) => JSON.stringify({ type: "GetTransactions", displayResponse })),
+);
+
+const page = fc.oneof(amazonPage, amazonAnswer, walmartPage);
 
 // Addresses that are nearly the retailer's as well as ones that are nothing like it.
 const address = fc.oneof(
@@ -104,7 +139,7 @@ const address = fc.oneof(
     .tuple(
       fc.constantFrom("https:", "http:", "file:", "javascript:", ""),
       fc.constantFrom("www.walmart.com", "walmart.com", "www.amazon.com", "amazon.com", "www.walmart.com.example.com", "example.com", "www.amazon.com@example.com", ""),
-      fc.constantFrom("/orders", "/orders/200000000000001", "/blocked", "/your-orders/orders", "/gp/your-account/order-details", "/cpe/yourpayments/transactions", "/errors/validateCaptcha", "/orchestra/cph/graphql/PurchaseHistoryV2/abc", "/orchestra/orders/graphql/getOrder/abc", "/"),
+      fc.constantFrom("/orders", "/orders/200000000000001", "/blocked", "/your-orders/orders", "/gp/your-account/order-details", "/cpe/yourpayments/transactions", "/errors/validateCaptcha", "/orchestra/cph/graphql/PurchaseHistoryV2/abc", "/orchestra/orders/graphql/getOrder/abc", "/cpe/yourpayments/api/get-transactions", "/get-transactions", "/"),
       fc.oneof(fc.constant(""), fc.string(), fc.string().map((s) => `/${s}`), fc.string().map((s) => `?${s}`)),
     )
     .map(([scheme, host, path, rest]) => `${scheme}//${host}${path}${rest}`),
@@ -125,13 +160,16 @@ const ORDER_URL = {
 for (const retailer of RETAILERS) {
   test(`${retailer.name}: no page a retailer could send makes a reader throw`, () => {
     fc.assert(
-      fc.property(page, fc.constantFrom("order_list_next_data", "order_detail_next_data", "order_list_html", "payments_html", ""), (payload, kind) => {
+      fc.property(page, fc.constantFrom("order_list_next_data", "order_detail_next_data", "order_list_html", "payments_html", "payments_json", ""), (payload, kind) => {
         retailer.listedOrders?.(payload);
         retailer.hasNextListPage?.(payload);
         retailer.orderIdIn?.(payload);
         retailer.isChallengePayload?.(payload);
         retailer.isSignedOut(kind, payload);
-        listSignature(retailer, payload);
+        for (const charge of retailer.listedCharges?.(payload) ?? []) {
+          assert.match(charge.key, /^[0-9a-f]{64}$/);
+          assert.ok(charge.date === null || /^\d{4}-\d{2}-\d{2}$/.test(charge.date));
+        }
       }),
     );
   });
@@ -194,7 +232,7 @@ test("Amazon: the order a details page is placed under is a number the page itse
 
 test("Amazon: each order is listed once, however many charges it has", () => {
   fc.assert(
-    fc.property(amazonPage, (payload) => {
+    fc.property(fc.oneof(amazonPage, amazonAnswer), (payload) => {
       const ids = (amazon.listedOrders?.(payload) ?? []).map((o) => o.id);
       assert.equal(new Set(ids).size, ids.length);
     }),

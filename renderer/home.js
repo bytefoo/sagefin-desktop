@@ -3,12 +3,98 @@
 const list = document.getElementById("retailers");
 const cannotSave = document.getElementById("cannot-save");
 
+/** Retailers whose "Set up history again" choices are open. */
+const resetOpen = new Set();
+
 function describe(retailer) {
   const parts = [];
   if (retailer.captures === 0) parts.push("Nothing saved yet.");
   else parts.push(`${retailer.captures} page${retailer.captures === 1 ? "" : "s"} saved on this computer.`);
   if (retailer.notice) parts.push(retailer.notice);
   return parts.join(" ");
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const longDate = (day) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+};
+
+/** The history line: how far setup got, and what is still to read. */
+function describeHistory(history) {
+  if (history.settingUp) return "Setting up its history now, in its window.";
+  const parts = [];
+  if (history.setup === "never") parts.push("History not set up yet.");
+  else {
+    const back = history.reachedDate ? ` back to ${longDate(history.reachedDate)}` : "";
+    parts.push(`History ${history.setup === "done" ? "set up" : "partly set up"}${back}, ${history.orders} order${history.orders === 1 ? "" : "s"}.`);
+  }
+  if (history.toRead > 0) parts.push(`${history.toRead} order${history.toRead === 1 ? "" : "s"} still to read, twenty a sync.`);
+  return parts.join(" ");
+}
+
+function button(text, className, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = className;
+  b.textContent = text;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** Setting up the history, and the two ways of setting it up again. */
+function historyActions(retailer) {
+  const history = retailer.history;
+  const box = document.createElement("div");
+  box.className = "history-actions";
+  if (history.settingUp || retailer.syncing) return box;
+
+  if (history.setup === "never") {
+    box.append(button("Set up history", "btn-secondary", () => void window.desktop.setUpHistory(retailer.code)));
+    return box;
+  }
+  if (history.setup === "started") {
+    box.append(button("Carry on setting up", "btn-secondary", () => void window.desktop.setUpHistory(retailer.code)));
+    return box;
+  }
+  if (!resetOpen.has(retailer.code)) {
+    box.append(button("Set up history again", "btn-secondary", () => {
+      resetOpen.add(retailer.code);
+      void render();
+    }));
+    return box;
+  }
+
+  // Going further back is setup again: what was read is skipped, and the strip says so.
+  box.append(button("Go further back", "btn-secondary", () => {
+    resetOpen.delete(retailer.code);
+    void window.desktop.setUpHistory(retailer.code);
+  }));
+
+  // Change how far back: orders on the to-do list older than the date are not read.
+  const date = document.createElement("input");
+  date.type = "date";
+  date.setAttribute("aria-label", `Read ${retailer.name} orders back to`);
+  box.append(date, button("Change how far back", "btn-secondary", () => {
+    if (!date.value) return;
+    resetOpen.delete(retailer.code);
+    void window.desktop.changeHowFarBack(retailer.code, date.value);
+  }));
+
+  // Start over: everything read here is forgotten and setup opens. SageFin keeps what it has.
+  box.append(button("Start over", "btn-secondary", () => {
+    const sure = window.confirm(
+      `Start ${retailer.name}'s history over? This computer forgets every order it has read there and opens setup again. Orders SageFin already has stay in SageFin.`,
+    );
+    if (!sure) return;
+    resetOpen.delete(retailer.code);
+    void window.desktop.startOver(retailer.code);
+  }));
+  box.append(button("Cancel", "btn-secondary", () => {
+    resetOpen.delete(retailer.code);
+    void render();
+  }));
+  return box;
 }
 
 async function render() {
@@ -34,14 +120,20 @@ async function render() {
       detail.className = "retailer-detail";
       detail.textContent = describe(retailer);
       label.append(name, detail);
+      if (retailer.syncable && retailer.history) {
+        const history = document.createElement("div");
+        history.className = "retailer-detail";
+        history.textContent = describeHistory(retailer.history);
+        label.append(history, historyActions(retailer));
+      }
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "btn-primary";
-      button.textContent = retailer.open ? `Show ${retailer.name}` : `Open ${retailer.name}`;
-      button.addEventListener("click", () => window.desktop.open(retailer.code));
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "btn-primary";
+      open.textContent = retailer.open ? `Show ${retailer.name}` : `Open ${retailer.name}`;
+      open.addEventListener("click", () => window.desktop.open(retailer.code));
 
-      item.append(avatar, label, button);
+      item.append(avatar, label, open);
       return item;
     }),
   );
