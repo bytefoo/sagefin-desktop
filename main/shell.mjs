@@ -31,10 +31,11 @@ function openInBrowser(url) {
  *   Taking the upload-only token the signed-in page minted, and letting go of it.
  * @param {(site: import("../lib/site.mjs").Site) => void} options.onSite
  *   Called when a development run switches to another SageFin.
- * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, unlockHere: (householdId: unknown) => Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean> }} options.privateMode
+ * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, unlockHere: (householdId: unknown) => Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean>, pageLoaded: () => void }} options.privateMode
  *   What the page may ask of private mode (main/private-mode.mjs): one yes or no, to unlock this
  *   window, and to show the app's own windows. The page may ask; only the operating system's prompt
- *   approves, and the page hears only how it ended.
+ *   approves, and the page hears only how it ended. `pageLoaded` is told each time the window's
+ *   page loads, so what an earlier load asked no longer counts.
  * @param {string} options.version  The version the app reports about itself (lib/version.mjs).
  * @param {string} options.icon  The window icon, where the platform shows one.
  * @param {object} options.background  Running in the background (lib/background.mjs).
@@ -125,6 +126,8 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
         sandbox: true,
       },
     });
+
+    w.webContents.on("did-navigate", () => privateMode.pageLoaded());
 
     // The page titles the window. Showing any SageFin but production, the title also says which.
     w.on("page-title-updated", (event, title) => {

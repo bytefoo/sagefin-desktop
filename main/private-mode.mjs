@@ -1,12 +1,16 @@
 // @ts-check
 // Private mode on this computer: carries out lib/private-mode.mjs's decisions.
 //
-// - **Unlock this window.** When SageFin's window is shown and its household is locked, and this
-//   computer holds a key of it, the app's own unlock window opens over it, and its Unlock button
-//   starts the unlock; so does the menu's Unlock SageFin…, and so does the locked page's own
-//   "Unlock with Touch ID / Windows Hello on this computer". Whichever starts it, Touch ID or
-//   Windows Hello asks the person, with the same fixed sentence, and the window's own sign-in asks
-//   and approves. The page may ask; only the operating system's prompt approves.
+// - **Unlock this window.** The locked page's own "Unlock with Touch ID / Windows Hello on this
+//   computer" starts the unlock; so does the menu's Unlock SageFin…, which opens the app's own
+//   unlock window, whose Unlock button does. Whichever starts it, Touch ID or Windows Hello asks the
+//   person, with the same fixed sentence, and the window's own sign-in asks and approves. The page
+//   may ask; only the operating system's prompt approves.
+// - **The unlock window opens by itself only for a page that offers no way in.** When SageFin's
+//   window is shown on a locked household and this computer holds a key of it, the app waits a few
+//   seconds for the page to ask whether this computer holds a key. The locked page asks as it
+//   appears, then draws its own button (or the phone's code), so nothing opens over it. A page that
+//   has not asked by then (a web app from before it did) gets the unlock window, as it always did.
 // - **Sync and lock.** When the check-in says your bank has new activity, a notification asks,
 //   at most once a locked period and never twice in six hours. Clicking it shows the window and the
 //   same unlock window, for a Sync and lock, asked the same way.
@@ -29,18 +33,21 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   NO_NOTICES,
+  PAGE_OFFER_WAIT_MS,
   SYNC_NOTICE,
   beginEnrolment,
   enrolmentQrText,
   holderTokens,
   holdingOf,
   holdsKeyFor,
+  lockedForThisWindow,
   logged,
   lookAtEnrolment,
   syncNotice,
   typedCode,
   unlockAskedByPage,
   unlockHere,
+  unlockWindowOnShow,
   whyIgnorePageAsk,
   whyNotNow,
 } from "../lib/private-mode.mjs";
@@ -85,6 +92,13 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     writeFileSync(`${file}.tmp`, JSON.stringify(state, null, 1));
     renameSync(`${file}.tmp`, file);
   };
+
+  // Which load of the window's page this is, and the last load whose page asked whether this
+  // computer holds a key: a locked page that asks draws its own way in (`unlockWindowOnShow`).
+  let pageLoads = 0;
+  let offeredOnLoad = -1;
+  /** @type {Set<() => void>} Shows of the window waiting to hear whether the page will ask. */
+  const offerWaiters = new Set();
 
   let screenLocked = false;
   powerMonitor.on("lock-screen", () => (screenLocked = true));
@@ -376,8 +390,21 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     /** Whether this computer holds a key of the household on the site shown. */
     holdsAKey: () => Boolean(state.holdings[site().key]),
 
-    /** The page's one yes or no: does this computer hold a key of the household it names? */
-    holdsKeyFor: (/** @type {unknown} */ householdId) => holdsKeyFor(state.holdings[site().key], householdId),
+    /**
+     * The page's one yes or no: does this computer hold a key of the household it names? Only the
+     * locked page asks, and it then draws its own way in, so asking also tells the app not to open
+     * its unlock window over this load of the page (`unlockWindowOnShow`).
+     */
+    pageAsksWhetherItHoldsKey(/** @type {unknown} */ householdId) {
+      offeredOnLoad = pageLoads;
+      for (const wake of [...offerWaiters]) wake();
+      return holdsKeyFor(state.holdings[site().key], householdId);
+    },
+
+    /** The window's page started loading again: what the last load said no longer counts. */
+    pageLoaded() {
+      pageLoads += 1;
+    },
 
     /** Whether this computer could be added at all: a security chip and the prompt that guards it. */
     canHoldKey,
@@ -409,13 +436,29 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
       return items;
     },
 
-    /** The window was shown: if its household is locked and this computer holds a key, offer to unlock. */
+    /**
+     * The window was shown: if its household is locked and this computer holds a key, and the page
+     * has not said within a few seconds that it offers its own unlock, open the unlock window.
+     */
     async onWindowShown() {
       const win = window();
       if (!win || !state.holdings[site().key]) return;
-      const status = await api(win).get("/private/status").catch(() => null);
-      const s = status?.body;
-      if (status?.status === 200 && (s?.state === "locked" || (s?.state === "unlocked" && s?.forThisSession === false))) void offerUnlock("full");
+      const shownAt = Date.now();
+      const locked = lockedForThisWindow(await api(win).get("/private/status").catch(() => null));
+      for (;;) {
+        const next = unlockWindowOnShow({ holdsAKey: Boolean(state.holdings[site().key]), locked, pageOffers: offeredOnLoad === pageLoads, waitedMs: Date.now() - shownAt });
+        if (next === "open") void offerUnlock("full");
+        if (next !== "wait") return;
+        await new Promise((resolve) => {
+          const wake = () => {
+            clearTimeout(timer);
+            offerWaiters.delete(wake);
+            resolve(undefined);
+          };
+          const timer = setTimeout(wake, Math.max(0, PAGE_OFFER_WAIT_MS - (Date.now() - shownAt)));
+          offerWaiters.add(wake);
+        });
+      }
     },
 
     /**
