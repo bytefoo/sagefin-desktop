@@ -38,12 +38,17 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     disconnect: () => ipcRenderer.invoke("shell:disconnect"),
     onRetailersChanged,
 
-    // Private mode. The page may ask one yes or no, and ask for the app's own windows; it can never
-    // unlock. Whether this computer holds a key of the household the page names: no key, holder id
-    // or anything else comes back.
+    // Private mode. The page may ask; only the operating system's prompt approves. Whether this
+    // computer holds a key of the household the page names: no key, holder id or anything else
+    // comes back.
     holdsKeyFor: (householdId) => ipcRenderer.invoke("shell:holds-key", householdId),
+    // Unlocks this window: straight to Touch ID or Windows Hello, with the app's own fixed sentence,
+    // and only for the household this computer holds a key of. Carried out only straight after a
+    // press on the page, and not again within seconds. What comes back is how it ended:
+    // "unlocked", "cancelled", "refused", "failed" or "not-now".
+    unlockThisWindow: (householdId) => (pressed() ? ipcRenderer.invoke("shell:unlock-here", householdId) : Promise.resolve("not-now")),
     // Shows the app's own unlock window, whose button and the operating system's prompt are what
-    // unlock. Carried out only straight after a press on the page, and not again within seconds.
+    // unlock. What a web app from before unlockThisWindow calls; remove it once it no longer does.
     showUnlockWindow: () => (pressed() ? ipcRenderer.invoke("shell:show-unlock") : Promise.resolve(false)),
     // Starts adding this computer, as the menu's Use This Computer to Unlock SageFin does.
     addThisComputer: () => (pressed() ? ipcRenderer.invoke("shell:add-this-computer") : Promise.resolve(false)),

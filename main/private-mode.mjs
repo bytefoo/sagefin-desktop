@@ -2,9 +2,11 @@
 // Private mode on this computer: carries out lib/private-mode.mjs's decisions.
 //
 // - **Unlock this window.** When SageFin's window is shown and its household is locked, and this
-//   computer holds a key of it, the app's own unlock window opens over it. Its button, not the
-//   page, starts the unlock; Touch ID or Windows Hello asks the person; the window's own sign-in
-//   asks and approves. The page can do nothing here but be covered.
+//   computer holds a key of it, the app's own unlock window opens over it, and its Unlock button
+//   starts the unlock; so does the menu's Unlock SageFin…, and so does the locked page's own
+//   "Unlock with Touch ID / Windows Hello on this computer". Whichever starts it, Touch ID or
+//   Windows Hello asks the person, with the same fixed sentence, and the window's own sign-in asks
+//   and approves. The page may ask; only the operating system's prompt approves.
 // - **Sync and lock.** When the check-in says your bank has new activity, a notification asks,
 //   at most once a locked period and never twice in six hours. Clicking it shows the window and the
 //   same unlock window, for a Sync and lock, asked the same way.
@@ -13,9 +15,11 @@
 //   then the twelve characters both screens show. Your phone adds it; this computer then unlocks
 //   once to prove it.
 // - **What the page may ask.** Whether this computer holds a key of the household it names (a yes
-//   or no), and to show the unlock window or start adding this computer, as the menu does. Only
-//   straight after a press on the page, in front of a person, and not again within seconds. What
-//   unlocks is still a press in the app's own window and the operating system's prompt.
+//   or no); to unlock this window, which goes straight to the operating system's prompt and tells
+//   the page only how it ended; and to show the unlock window or start adding this computer, as the
+//   menu does. Only straight after a press on the page, with the window in front and the screen
+//   unlocked, and not again within ten seconds. The page sends nothing that goes in the prompt, and
+//   no key or anything of one comes back. What approves is the person, at the prompt.
 // - **A record of every use**, kept on this computer, which SageFin cannot erase.
 
 import { BrowserWindow, Notification, ipcMain, powerMonitor } from "electron";
@@ -35,6 +39,7 @@ import {
   lookAtEnrolment,
   syncNotice,
   typedCode,
+  unlockAskedByPage,
   unlockHere,
   whyIgnorePageAsk,
   whyNotNow,
@@ -160,11 +165,12 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     if (fromOverlay(event)) overlay?.close();
   });
 
-  /** Whether the key may be used now. Always called from a press in the unlock window, never the page. */
+  /** Whether the key may be used now, for a press in the unlock window. The page's ask has its own check, below. */
   function blocked() {
     const win = window();
     return whyNotNow({
-      fromPage: false,
+      by: "app",
+      pageAskAllowed: false,
       screenLocked,
       windowShown: Boolean(win && win.isVisible() && !win.isMinimized()),
       windowFocused: Boolean((win && win.isFocused()) || (overlay && overlay.isFocused())),
@@ -296,21 +302,72 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
   /** @type {number | null} */
   let lastPageAsk = null;
 
-  /** Whether to carry out the page's ask now, counted here so a page cannot nag. */
-  function pageMayAsk() {
+  /** The page's ask as it stands now. @returns {import("../lib/private-mode.mjs").PageAsk} */
+  function pageAsk() {
     const win = window();
-    const now = Date.now();
-    const why = whyIgnorePageAsk({
+    return {
       lastAt: lastPageAsk,
-      now,
+      now: Date.now(),
       screenLocked,
       windowShown: Boolean(win && win.isVisible() && !win.isMinimized()),
       windowFocused: Boolean(win && win.isFocused()),
       overlayOpen: Boolean(overlay && !overlay.isDestroyed()),
-    });
-    if (why) return false;
-    lastPageAsk = now;
+    };
+  }
+
+  /** Whether to carry out the page's ask now, counted here so a page cannot nag. */
+  function pageMayAsk() {
+    const ask = pageAsk();
+    if (whyIgnorePageAsk(ask)) return false;
+    lastPageAsk = ask.now;
     return true;
+  }
+
+  /**
+   * The page's "Unlock with Touch ID / Windows Hello on this computer": straight to the operating
+   * system's prompt, with the fixed sentence for this window, and on approval the same unlock the
+   * unlock window's own button runs. The page is told how it ended, and nothing more.
+   * @param {unknown} householdId
+   * @returns {Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>}
+   */
+  async function unlockForPage(householdId) {
+    const win = window();
+    const holding = state.holdings[site().key];
+    if (!win) return "not-now";
+    const ask = pageAsk();
+    let began = false;
+    /** @type {Awaited<ReturnType<typeof unlockAskedByPage>>} */
+    let asked;
+    try {
+      asked = await unlockAskedByPage({
+        ask,
+        circumstances: { screenLocked: ask.screenLocked, windowShown: ask.windowShown, windowFocused: ask.windowFocused, prompting },
+        holding,
+        householdId,
+        api: api(win),
+        keys,
+        started: () => {
+          began = true;
+          lastPageAsk = ask.now;
+          prompting = true;
+        },
+      });
+    } catch {
+      asked = { outcome: began ? "failed" : "not-now", unlock: began ? { outcome: "failed", code: null } : null };
+    } finally {
+      if (began) prompting = false;
+    }
+    const { outcome, unlock } = asked;
+    if (!unlock) return outcome;
+    record("unlock", unlock.outcome, unlock.code);
+    if (unlock.code === "unknown_holder") {
+      // Removed from another device: this computer forgets that it held a key.
+      delete state.holdings[site().key];
+      save();
+    }
+    // After the answer has gone back to the page, which the reload replaces.
+    if (outcome === "unlocked") setImmediate(() => win.webContents.reload());
+    return outcome;
   }
 
   const canHoldKey = () => Boolean(holderTokens(process.platform, keys()));
@@ -325,7 +382,13 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     /** Whether this computer could be added at all: a security chip and the prompt that guards it. */
     canHoldKey,
 
-    /** The page asked to show the unlock window. It only shows it; its button unlocks. */
+    /** The page's press on its unlock button: the operating system's prompt, then this window unlocks. */
+    pageAsksToUnlockHere: unlockForPage,
+
+    /**
+     * The page asked to show the unlock window. It only shows it; its button unlocks. What a web
+     * app from before "unlock-here" calls; remove it once the web app no longer does.
+     */
     async pageAsksToUnlock() {
       if (!state.holdings[site().key] || !pageMayAsk()) return false;
       return offerUnlock("full");

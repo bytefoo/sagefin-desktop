@@ -31,9 +31,10 @@ function openInBrowser(url) {
  *   Taking the upload-only token the signed-in page minted, and letting go of it.
  * @param {(site: import("../lib/site.mjs").Site) => void} options.onSite
  *   Called when a development run switches to another SageFin.
- * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean> }} options.privateMode
- *   What the page may ask of private mode (main/private-mode.mjs): one yes or no, and to show the
- *   app's own windows. Nothing here uses the key; a press in those windows does.
+ * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, unlockHere: (householdId: unknown) => Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean> }} options.privateMode
+ *   What the page may ask of private mode (main/private-mode.mjs): one yes or no, to unlock this
+ *   window, and to show the app's own windows. The page may ask; only the operating system's prompt
+ *   approves, and the page hears only how it ended.
  * @param {string} options.version  The version the app reports about itself (lib/version.mjs).
  * @param {string} options.icon  The window icon, where the platform shows one.
  * @param {object} options.background  Running in the background (lib/background.mjs).
@@ -76,8 +77,9 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
           app: "sagefin-desktop",
           version,
           platform: process.platform,
-          // "add-this-computer" only where this computer can hold a key at all.
-          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
+          // "add-this-computer" only where this computer can hold a key at all. "unlock-here": the
+          // page's unlock button goes straight to the operating system's prompt (unlockThisWindow).
+          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", "unlock-here", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
         }
       : null,
   );
@@ -97,6 +99,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   ipcMain.handle("shell:connect", (event, credential) => (fromSite(event) ? account.connect(credential) : false));
   ipcMain.handle("shell:disconnect", (event) => (fromSite(event) ? account.disconnect() : null));
   ipcMain.handle("shell:holds-key", (event, householdId) => (fromSite(event) ? privateMode.holdsKeyFor(householdId) : false));
+  ipcMain.handle("shell:unlock-here", (event, householdId) => (fromSite(event) ? privateMode.unlockHere(householdId) : "not-now"));
   ipcMain.handle("shell:show-unlock", (event) => (fromSite(event) ? privateMode.showUnlock() : false));
   ipcMain.handle("shell:add-this-computer", (event) => (fromSite(event) ? privateMode.startAdding() : false));
 

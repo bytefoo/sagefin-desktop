@@ -87,8 +87,10 @@ may start a sync the member asked for from the web, which runs as a scheduled on
 the same conditions (`shouldStartRequested`), and may never carry anything else for the app to do,
 except that a private household's `privateMode` may make it show one notification asking the member
 (lib/private-mode.mjs counts them); a household key is used only after the member approves the
-operating system's own prompt, started from the app's own unlock window or menu and never from the
-page, and only for this window's own unlock or Sync and lock (`lib/private-mode.mjs`); a sync only moves
+operating system's own prompt, started from the app's own unlock window or menu, or from the page's
+ask straight after a real press on it under `whyIgnorePageAsk`'s limits (the page may ask; only the
+prompt approves, and the page hears only how it ended), and only for this window's own unlock or
+Sync and lock (`lib/private-mode.mjs`); a sync only moves
 between pages (loading them, and, where a list's later pages have no address, doing what a person
 does to see more: pressing Purchase history's own Next button at Walmart, scrolling the payments
 list to its end at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes
