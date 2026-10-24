@@ -17,10 +17,10 @@ import { CONSENT_KINDS, allowed, createConsents, maySync, needsChoice, standingA
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
-import { RETAILERS, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
+import { RETAILERS, gatherListed, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, ordersToOpen, readListPage, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
+import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, openedAllListed, ordersToOpen, readListPage, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
@@ -800,7 +800,7 @@ async function runSync(retailer, { visible, by }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
   // Every way a sync starts comes through here, so this is the gate that cannot be walked round.
   if (!maySyncNow(retailer)) return;
-  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, nextPageInPlace } = retailer;
+  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, nextPageInPlace, listPagesPerRun } = retailer;
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
   const siteKey = site.key;
@@ -904,7 +904,7 @@ async function runSync(retailer, { visible, by }) {
     // Page through the orders list until readListPage says stop. A page after the first is reached
     // as a person reaches it, and is saved by the same code that saves what a person opens.
     /** @type {import("../lib/retailers.mjs").ListedOrder[]} */
-    const listed = [];
+    let listed = [];
     // What this computer has read is told to SageFin once a run, with the first question.
     let toldSageFin = false;
     /**
@@ -933,7 +933,10 @@ async function runSync(retailer, { visible, by }) {
     let pageNumber = 1;
     let reachedEnd = false;
     for (let pagesRead = 1; ; pagesRead += 1) {
-      const pageOrders = listedOrders(list);
+      // Each order fingerprinted from every row of it the run has seen, not only this page's.
+      const gathered = gatherListed(listed, listedOrders(list));
+      listed = gathered.listed;
+      const pageOrders = gathered.page;
       await learnWhatWasRead(pageOrders);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const step = readListPage({
@@ -944,6 +947,8 @@ async function runSync(retailer, { visible, by }) {
         hasNextPage: hasNextListPage(list),
         pagesRead,
         now: new Date(),
+        grew: gathered.grew,
+        maxPages: listPagesPerRun,
       });
       listed.push(...step.fresh);
       if (step.end) reachedEnd = true;
@@ -1065,6 +1070,12 @@ async function runSync(retailer, { visible, by }) {
     }
 
     const todo = ordersToOpen(listed, state.seen);
+    if (logPages) {
+      // Counts only: never an order number, a date or a fingerprint.
+      const neverRead = listed.filter((o) => !Object.hasOwn(state.seen, o.id)).length;
+      const changed = listed.filter((o) => Object.hasOwn(state.seen, o.id) && state.seen[o.id] !== o.fingerprint).length;
+      console.log(`sync: listed ${listed.length} orders; ${neverRead} never read, ${changed} changed since read; opening ${todo.length}`);
+    }
     let read = 0;
     let missed = 0;
     for (const [index, order] of todo.entries()) {
@@ -1095,12 +1106,14 @@ async function runSync(retailer, { visible, by }) {
       }
     }
 
-    // Only now, with every listed order opened: a run that stopped partway must not move the
-    // place the next one resumes from past orders it never reached.
-    if (reachedEnd) {
+    // Only now, and only with every listed order opened: a run that stopped partway, or listed
+    // more than it could open, must not move the place the next one resumes from past orders it
+    // never reached, nor call the history caught up while some of it is still unread.
+    const openedAll = openedAllListed(listed, state.seen);
+    if (openedAll && reachedEnd) {
       state.caughtUp = true;
       state.listedThroughPage = null;
-    } else if (!state.caughtUp && !nextPageScript) {
+    } else if (openedAll && !state.caughtUp && !nextPageScript) {
       state.listedThroughPage = pageNumber > 1 ? pageNumber : null;
     }
 

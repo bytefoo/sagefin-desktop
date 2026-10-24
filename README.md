@@ -133,14 +133,19 @@ doing, the window appears by itself if the retailer asks for a person, and Open 
 who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 
 - **Slowly, and not many.** Five seconds between pages, at most ten pages of the orders list and
-  twenty orders in a run (`lib/sync-plan.mjs`). A daily run usually reads one list page and opens
-  none or one order.
+  twenty orders in a run (`lib/sync-plan.mjs`). At Amazon, where a scroll of Your Payments brings
+  ten or twenty charges rather than a page, at most thirty scrolls, which is about three months of
+  charges (`listPagesPerRun` in `lib/retailers.mjs`). A daily run usually reads one list page and
+  opens none or one order.
 - **Three months back, then only what is new.** Purchase history lists five orders a page, and
   pages by a cursor the page holds, not by its address: loading `/orders?page=2` afresh shows the
   first five again. So a run goes to the next page the way a person does, by pressing the page's
   own **Next page** button, and reads the orders from the request the page then makes. It carries
   on until it reaches orders older than 90 days or the end of the history; an older order has no
-  bank transaction in SageFin to match. It opens at most twenty orders a run. A run that opens all
+  bank transaction in SageFin to match. It opens at most twenty orders a run, those it has never
+  read before those that have changed since it read them, so a backlog of unread orders is never
+  starved by recent ones whose charges keep changing; only the never-read ones count towards when
+  it stops listing. A run that opens all
   twenty may have left more, so the next starts an hour later rather than a day later, and so on
   until a run opens fewer: a long history is caught up over a few hours, each run as slow and as
   small as any other (`catchingUp` in `lib/sync-plan.mjs`). Once caught up, a run stops at the first list page with nothing to
@@ -148,7 +153,10 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   past the first page, such as a refund, is not seen by a scheduled run.
 - **Only what is new or changed.** The app remembers each order it has read with a fingerprint of
   the few list fields that change when the order does. The whole list entry cannot be used:
-  Walmart reorders parts of it on every load.
+  Walmart reorders parts of it on every load. At Amazon it is the order's charges, each a date and
+  an amount, taken from every row of the order the run saw on any page of the list, and leaving out
+  a charge still marked Pending: a hold that is then charged is no reason to open the order again,
+  and an order with only holds is opened once one is charged.
 - **It stops for a person.** On the retailer's robot check or a sign-in, the run ends and the window
   is shown. It never retries through either. Two order pages in a row that are not the order also
   end it.
