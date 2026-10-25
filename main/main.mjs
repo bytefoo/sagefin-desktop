@@ -20,7 +20,7 @@ import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
-import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
+import { adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
 import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
@@ -876,6 +876,30 @@ async function runSync(retailer, { visible, by }) {
   notices.delete(retailer.code);
   progress("Opening your orders…");
 
+  // Before anything is opened or said: has SageFin lost what this computer read (a household
+  // restored from a backup, or reset)? Then this computer's record goes too, as Start over does,
+  // and the run ends without touching the retailer: only the member's setup reaches older orders.
+  // A stand-in page is not an order, so a fixture run asks nothing.
+  const weighing = retailerFixture && siteKey !== "local" ? null : credentials?.get(siteKey);
+  if (weighing) {
+    const held = await askHeld({ site: siteOrigin, secret: weighing.secret, retailer: retailer.code, fetch });
+    if (sageFinLostReading(state, held, weighing.tokenId)) {
+      startOver(state);
+      state.readFor = null;
+      state.lastRunAt = new Date().toISOString();
+      state.lastRunBy = by ?? (visible ? "member" : "schedule");
+      state.lastResult = `SageFin no longer has the ${retailer.name} orders this computer read, so this computer has forgotten them too. Set up your ${retailer.name} history again to send them.`;
+      state.lastOutcome = "stopped";
+      state.lastOrders = null;
+      states.set(siteKey, retailer.code, state);
+      syncing.delete(retailer.code);
+      browsed.delete(retailer.code);
+      changed();
+      void checkInNow();
+      return;
+    }
+  }
+
   const hadWindow = windows.has(retailer.code);
   const win = openRetailer(retailer, { show: visible, navigate: false });
 
@@ -989,6 +1013,13 @@ async function runSync(retailer, { visible, by }) {
         asked: asking.map((o) => orderKey(retailer.code, o.id, o.fingerprint)),
         read: toldSageFin ? [] : readKeys(retailer.code, state.seen),
         fetch,
+        // SageFin holds this computer's reading under this credential: what the next run weighs.
+        onHeld: (held) => {
+          if (held.here > 0 && state.readFor !== credential.tokenId) {
+            state.readFor = credential.tokenId;
+            states.set(siteKey, retailer.code, state);
+          }
+        },
       });
       if (known) toldSageFin = true;
       if (adoptRead(retailer.code, orders, state.seen, known) > 0) {

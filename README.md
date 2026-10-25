@@ -341,6 +341,15 @@ Walmart and Amazon are the retailers the app supports today.
   account. With no answer the app opens what its own record says to. One limit worth knowing: a
   key says a computer *read* an order, not that the page has finished arriving at SageFin, so a
   computer that read orders and then could not send them delays those orders until it can.
+  The answer also says how many keys SageFin holds, from this computer and from your computers
+  on the same account, and a sync's first question asks only that, with nothing sent. That is
+  how the app learns SageFin has lost what it read: restoring a household from a backup deletes
+  the keys, and resetting one deletes the connection they were kept under, along with the orders
+  this app sent. If SageFin holds none of this computer's keys under the connection it last held
+  them for, or, under a new connection, none of the account's, the app forgets what it has read
+  for that retailer, as **Start over** does, and the sync ends there without opening the
+  retailer. Set the history up again to send the older orders back. A connection you revoke and
+  replace keeps its keys at SageFin, so connecting again does not make the app forget.
 - **A sync only moves between pages.** It loads the orders list and each order's page, one at a
   time and slowly. Where a list has no address for its later pages it does what a person does to
   see more: presses Purchase history's own Next button at Walmart, and at Amazon scrolls the
