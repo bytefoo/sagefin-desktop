@@ -272,13 +272,50 @@ body.strip {
   font-weight: 500;
 }
 
-/* The retailers window's history line and its two ways of setting it up again. */
+/*
+  The retailers window's ways of setting a history up again: a row of its own under the retailer's,
+  lined up with its name, so a narrow window wraps the buttons rather than cutting one off.
+*/
+.card li:has(> .history-actions) {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
 .history-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-top: 6px;
+  flex-basis: 100%;
+  min-width: 0;
+  padding-left: 44px;
+}
+
+.history-actions:empty {
+  display: none;
+}
+
+/* Its label, the date box and the button, wrapping under each other in turn. */
+.how-far-back {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  flex-basis: 100%;
+  min-width: 0;
+}
+
+.how-far-back-hint {
+  flex-basis: 100%;
+}
+
+.history-actions .btn-secondary,
+.history-actions input[type="date"] {
+  max-width: 100%;
+}
+
+.history-actions .btn-secondary {
+  white-space: normal;
 }
 
 .history-actions input[type="date"] {
