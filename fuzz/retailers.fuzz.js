@@ -60,6 +60,7 @@ const walmartOrder = fc.oneof(
   fc.record(
     {
       id: fc.oneof(anything, fc.string(), fc.stringMatching(/^\d{6,30}$/)),
+      isInStore: fc.oneof(anything, fc.boolean()),
       version: anything,
       itemCount: anything,
       orderDate: fc.oneof(anything, fc.constant("2026-10-03T10:00:00.000-0500")),
@@ -71,7 +72,7 @@ const walmartOrder = fc.oneof(
             anything,
             fc.record(
               {
-                groupId: fc.oneof(anything, fc.string(), fc.stringMatching(/^[0-9a-f]{16,64}$/)),
+                groupId: fc.oneof(anything, fc.string(), fc.constant("0"), fc.stringMatching(/^[0-9a-f]{1,64}$/), fc.stringMatching(/^[0-9a-f]{16,64}$/)),
                 items: fc.oneof(anything, fc.array(fc.oneof(anything, fc.record({ id: anything, statusCode: anything, isUnavailable: anything })))),
               },
               { requiredKeys: [] },
@@ -92,6 +93,21 @@ const walmartPage = fc.oneof(
   anything.map((v) => JSON.stringify(v)),
   walmartHistory.map((purchaseHistory) => JSON.stringify({ props: { pageProps: { phRedesignInitialData: { data: { purchaseHistory } } } } })),
   walmartHistory.map((purchaseHistory) => JSON.stringify({ data: { purchaseHistory } })),
+  // An order's page, filled or not: Walmart's header-only page still has an order object.
+  fc
+    .oneof(
+      anything,
+      fc.record(
+        {
+          id: fc.oneof(anything, fc.stringMatching(/^\d{6,30}$/)),
+          groups_2101: fc.oneof(anything, fc.array(anything, { maxLength: 2 })),
+          groups: fc.oneof(anything, fc.array(anything, { maxLength: 2 })),
+          errors: anything,
+        },
+        { requiredKeys: [] },
+      ),
+    )
+    .map((order) => JSON.stringify({ props: { pageProps: { initialData: { data: { order } } } } })),
 );
 
 // Your Payments' own get-transactions answer, with anything at all where the app expects a value.
@@ -153,7 +169,9 @@ const ORDER_PAGE = { walmart: "order_detail_next_data", amazon: "order_detail_ht
 const ORDER_NUMBER = { walmart: /^\d{6,30}$/, amazon: /^\d{3}-\d{7}-\d{7}$/ };
 // The whole address, not only where it points: what follows the order number is the list's too.
 const ORDER_URL = {
-  walmart: /^https:\/\/www\.walmart\.com\/orders\/\d{6,30}(\?groupId=[0-9a-f]{16,64})?$/i,
+  // Online: the long hex group id, or none. In-store: any digits-or-hex group id, or none, then
+  // `storePurchase=true`.
+  walmart: /^https:\/\/www\.walmart\.com\/orders\/\d{6,30}(\?groupId=[0-9a-f]{16,64}|\?(groupId=[0-9a-f]{1,64}&)?storePurchase=true)?$/i,
   amazon: /^https:\/\/www\.amazon\.com\/gp\/your-account\/order-details\?orderID=\d{3}-\d{7}-\d{7}$/,
 };
 
@@ -235,6 +253,20 @@ test("Amazon: each order is listed once, however many charges it has", () => {
     fc.property(fc.oneof(amazonPage, amazonAnswer), (payload) => {
       const ids = (amazon.listedOrders?.(payload) ?? []).map((o) => o.id);
       assert.equal(new Set(ids).size, ids.length);
+    }),
+  );
+});
+
+// A run takes an order off its to-do list only when its page held it. A page Walmart could not fill
+// is never that page, whatever else it carries.
+test("Walmart: an order page is only ever the order's when the order has its items on it", () => {
+  fc.assert(
+    fc.property(walmartPage, (payload) => {
+      const id = walmart.orderIdIn?.(payload) ?? null;
+      if (id === null) return;
+      const order = JSON.parse(payload)?.props?.pageProps?.initialData?.data?.order;
+      assert.equal(order.id, id);
+      assert.ok(Object.keys(order).some((k) => /^groups(_\d+)?$/.test(k) && Array.isArray(order[k]) && order[k].length > 0));
     }),
   );
 });

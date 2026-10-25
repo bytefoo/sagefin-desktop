@@ -202,7 +202,13 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   the run saw on any page of the list, and leaving out a charge still marked Pending.
 - **A robot check stops the run at once.** The run ends, says so, and stops the schedule. It does
   not bring its window forward to ask anybody to answer the check, and does not wait for anyone to.
-  Two order pages in a row that are not the order also end it.
+  Two order pages in a row that are not the order also end it, and say so. A page with no order on
+  it (Walmart's header and nothing else, or its "Sorry" page) is not the order: the order is not
+  counted as read, and stays on the to-do list.
+- **An in-store Walmart purchase opens at its own address.** Purchase history marks one
+  `isInStore`, and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
+  address from the list, with the order number digits only and the group id digits or hex only, as
+  it does every address it opens.
 - **A sign-in page stops the schedule on that computer.** A run that meets the retailer's sign-in
   page ends, shows the window, and is not repeated by the schedule: a run each hour that loads a
   sign-in page and leaves is a pattern a retailer could fairly read as a robot's. The next run is

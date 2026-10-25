@@ -1107,10 +1107,15 @@ async function runSync(retailer, { visible, by }) {
         continue;
       }
 
-      // Not the order's page. One may be a slow load; two in a row is the retailer saying no.
+      // Not the order's page, or the page with no order on it (orderIdIn says none for both), so the
+      // order stays on the to-do list for the next run. One may be a slow load; two in a row is the
+      // retailer saying no, or an address it cannot fill.
       missed += 1;
       if (missed >= 2) {
-        return finish(`${retailer.name} stopped showing orders partway through. The sync has stopped for now.`, { needsMember: true });
+        return finish(
+          `${retailer.name} showed ${missed} order pages in a row with no order on them, so the sync has stopped for now. Those orders are still to read.`,
+          { needsMember: true },
+        );
       }
     }
 
