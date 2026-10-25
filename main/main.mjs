@@ -361,11 +361,12 @@ async function start() {
     },
     // What the page may ask of private mode, which starts just below, once its window exists.
     privateMode: {
-      holdsKeyFor: (householdId) => privateMode?.holdsKeyFor(householdId) ?? false,
+      holdsKeyFor: (householdId) => privateMode?.pageAsksWhetherItHoldsKey(householdId) ?? false,
       canHoldKey: () => privateMode?.canHoldKey() ?? false,
       unlockHere: async (/** @type {unknown} */ householdId) => (await privateMode?.pageAsksToUnlockHere(householdId)) ?? "not-now",
       showUnlock: async () => (await privateMode?.pageAsksToUnlock()) ?? false,
       startAdding: async () => (await privateMode?.pageAsksToAdd()) ?? false,
+      pageLoaded: () => privateMode?.pageLoaded(),
     },
     onSite(next) {
       site = next;
@@ -377,7 +378,7 @@ async function start() {
   });
 
   // A private household's own window, unlocked here with Touch ID once this computer holds a key.
-  // Offered when the window is shown, and from the menu; never because the page asked.
+  // Offered from the menu, and when the window is shown on a page that offers no way in itself.
   privateMode = startPrivateMode({ site: () => site, window: () => main?.window ?? null, showWindow: () => main?.show(), dir: path.join(dir, "..", "private-mode") });
   main.window.on("show", () => void privateMode?.onWindowShown());
   main.window.webContents.once("did-finish-load", () => {

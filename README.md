@@ -311,7 +311,7 @@ Walmart and Amazon are the retailers the app supports today.
   - *To SageFin, when its window is shown, and only on a computer that holds a private household's
     key*: whether that household is locked (`GET /api/v1/private/status`), on the window's own
     sign-in. It sends nothing but the request, and the answer only decides whether the app's own
-    unlock window opens.
+    unlock window may open, which it then does only if the page offers no way in of its own.
   - *To GitHub, once an hour, and when you choose Check for Updates*, to ask whether this
     repository has published a newer version (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
@@ -474,8 +474,15 @@ without reaching for the phone. What it holds itself to, in this source:
   twice within ten seconds (`whyIgnorePageAsk`), so a page cannot keep a prompt in front of you.
   A page can therefore put the prompt in front of you once after you pressed something on it;
   it can never answer it. Unlocking also starts from the app's own unlock window (a page from the
-  app's own files, `renderer/unlock.html`), which opens by itself when the window comes up
-  locked, and from its menu.
+  app's own files, `renderer/unlock.html`), which the menu's **Unlock SageFin…** opens.
+- **The unlock window opens by itself only where the page offers no way in.** When the window
+  comes up locked on a computer that holds the household's key, the app waits up to eight seconds
+  (`unlockWindowOnShow`). SageFin's locked page asks whether this computer holds a key as it
+  appears, and then draws its own way in: the one-press Touch ID or Windows Hello button, or your
+  phone's code. So once it has asked, during this load of the page, nothing opens over it. A page
+  that has not asked by then, from a web app older than that, gets the unlock window as before, so
+  nobody is left without a way in. Asking changes nothing else: the answer is the same yes or no,
+  and the page's other asks keep every limit above.
 - **It unlocks its own window, and Sync and lock, and nothing else.** The app asks SageFin for an
   unlock on the window's own sign-in, checks the answer says that sign-in asked, and approves it
   on the same sign-in. It never takes a request id from anywhere else, so it can never let in a
