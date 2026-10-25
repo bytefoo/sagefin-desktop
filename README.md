@@ -79,6 +79,13 @@ are the site's own, and a web deploy changes the app's interface too.
   tells the web app it is running in the desktop app and what the app can do; `retailers()` lists
   each retailer with how many pages are saved here; `openRetailer(code)` opens one; `onRetailersChanged`
   says when to ask again. Names, counts and times only — a saved page's contents never cross it.
+  `setUpHistory(code)` opens a retailer's history for the member to set up
+  ([below](#setting-up-your-history)), and `setBankHistory({ start, locked })` is the page handing over
+  where the household's bank history starts, which it read with the member's own sign-in, for the
+  strip that setup shows. The app never asks SageFin for it. `changeHowFarBack(code, day)` and
+  `startHistoryOver(code)` are the retailers window's other two ways of setting a history up again
+  (the `history-again` capability), answered only straight after a press on the page; the app
+  checks the retailer and that the day is a real one no later than today.
   It exists only on a SageFin origin, and the main process checks the caller's frame and origin
   again before answering. Settings → Retail sync in the web app is where it shows. The same calls
   also answer under their older names (`stores()`, `openStore`, `syncStore`, `onStoresChanged`),
@@ -89,7 +96,8 @@ A development run can open another site: `SAGEFIN_DESKTOP_SITE=test npm start`, 
 menu. A packaged app opens production. Each site has its own browser profile.
 
 The retailers window (Retailers → Retailers on This Computer) is the app's own page: what is saved here,
-and a button to open each retailer.
+a button to open each retailer, and each retailer's history: whether it is set up, how far back, how
+many orders are still to read, and the ways to set it up again.
 
 ## Running in the background
 
@@ -109,8 +117,10 @@ leaves the app running (`lib/background.mjs`). The rules:
   tray, to the web page and in its check-in; package.json's own version is a placeholder that
   matches no release. The window's title names the site whenever it is not production.
 
-On Windows and Linux the menu bar is hidden until Alt is pressed, so the window is only SageFin;
-everything in the menu is also on the tray icon. macOS keeps its menu at the top of the screen.
+On Windows and Linux the main window's menu bar is always shown, at the top of the window, so its
+Retailers menu is somewhere a member can see; everything in it is also on the tray icon. macOS
+keeps its menu at the top of the screen. Pop-ups, the unlock window and a retailer's window still
+hide theirs until Alt is pressed.
 - **Starting with the computer is off by default**, and offered only in a packaged app on macOS
   and Windows (a development run would register Electron itself). Not exercised yet: nothing is
   packaged build has been run with it. On macOS 13 and later the system does not say that a start was a login start,
@@ -119,11 +129,43 @@ everything in the menu is also on the tray icon. macOS keeps its menu at the top
 The two choices are in `preferences.json` beside the captures folder, in the clear: neither is a
 secret.
 
+## Setting up your history
+
+A retailer's history is loaded once, by the member, and kept up after that by small runs. The app
+does not page back through years of orders by itself: Your Payments at Amazon has no address for
+"after this point", so a run could only ever start again from the top, and on 2026-10-24 the first
+run that scrolled it thirty times met Amazon's robot check, where ten never had. Walmart's terms
+prohibit software gathering its pages, and the less of the history a run reads, the better.
+
+- **Setup is the member's own browsing.** Set up history (in the retailers window, or Settings →
+  Retail sync in SageFin) opens the retailer's history page, Your Payments or Purchase history, and
+  the member scrolls down, or presses Next page, as far back as they want. The app saves what their
+  browsing loads, exactly as it saves any page they open; nothing is pressed or scrolled for them.
+- **A strip says how far.** Above the retailer's page, in a view of the app's own (the retailer's
+  page is never drawn on or changed to make room): "Setting up your Amazon history · back to March 14,
+  2025 · 96 orders so far", and where the household's bank history in SageFin starts, since an order
+  older than that has nothing to match. Once the history reaches it, the strip says that covers all
+  of it. The date is what the signed-in SageFin page handed over; when the household is locked in
+  private mode and none was handed over, the strip says it cannot show it rather than guess.
+  **Done** ends setup and closes the window. Closing the window instead keeps what was seen and how
+  far it got, and setting up again carries on from there.
+- **A robot check during setup is the member's.** It is their browsing, so the strip says to answer
+  it in the window and carry on. A run never does (below).
+- **Each order goes on a to-do list.** The charges and totals in the list reach SageFin at once,
+  inside the saved list. What is left is each order's own page, for its items: the order's number,
+  where its page is and a fingerprint go on a to-do list kept on this computer, sealed like
+  everything else (`lib/history.mjs`, in the sync state). An order already read in the state the
+  list shows is skipped, and the strip says how many were.
+- **Setting it up again**, in the retailers window: *go further back* is setup again, skipping what
+  was read; *change how far back* takes the to-do list's orders older than a date off it, so they are
+  never opened; *start over* forgets the to-do list and every order and charge read here, and opens
+  setup. None of them removes anything from SageFin: an order already there is removed only there.
+
 ## Syncing a retailer
 
-**Sync now** in Settings → Retail sync opens a retailer's orders list and then the page of each order
-it has not already read in its present state, one at a time. Each page is saved by the same code
-that saves it when the member opens it; the sync only does the opening, from the member's
+**Sync now** in Settings → Retail sync opens a retailer's orders list, reads it until it is caught
+up, then opens the next orders on the to-do list, one at a time. Each page is saved by the same
+code that saves it when the member opens it; the sync only does the opening, from the member's
 computer, in a window signed in by the member.
 
 That window shows while the sync runs when the member may be needed at it: the first sync of a
@@ -132,34 +174,35 @@ finished, the next Sync now works out of the way, as the daily sync does. The ca
 doing, the window appears by itself if the retailer asks for a person, and Open shows it to anyone
 who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 
-- **Slowly, and not many.** Five seconds between pages, at most ten pages of the orders list and
-  twenty orders in a run (`lib/sync-plan.mjs`). At Amazon, where a scroll of Your Payments brings
-  ten or twenty charges rather than a page, at most thirty scrolls, which is about three months of
-  charges (`listPagesPerRun` in `lib/retailers.mjs`). A daily run usually reads one list page and
-  opens none or one order.
-- **Three months back, then only what is new.** Purchase history lists five orders a page, and
-  pages by a cursor the page holds, not by its address: loading `/orders?page=2` afresh shows the
-  first five again. So a run goes to the next page the way a person does, by pressing the page's
-  own **Next page** button, and reads the orders from the request the page then makes. It carries
-  on until it reaches orders older than 90 days or the end of the history; an older order has no
-  bank transaction in SageFin to match. It opens at most twenty orders a run, those it has never
-  read before those that have changed since it read them, so a backlog of unread orders is never
-  starved by recent ones whose charges keep changing; only the never-read ones count towards when
-  it stops listing. A run that opens all
-  twenty may have left more, so the next starts an hour later rather than a day later, and so on
-  until a run opens fewer: a long history is caught up over a few hours, each run as slow and as
-  small as any other (`catchingUp` in `lib/sync-plan.mjs`). Once caught up, a run stops at the first list page with nothing to
-  open. The cost of that is deliberate: a late change to an order
-  past the first page, such as a refund, is not seen by a scheduled run.
+- **Slowly, and not many.** Five seconds between pages, and twenty orders in a run, the newest on
+  the to-do list first (`lib/sync-plan.mjs`, `nextToOpen` in `lib/history.mjs`). Listing stops as
+  soon as the run is caught up, and never goes further than ten pages of Purchase history or five
+  scrolls of Your Payments (`listPagesPerRun` in `lib/retailers.mjs`). A daily run usually reads one
+  list page and opens none or one order.
+- **Caught up, at Amazon, is the first charge already read.** Your Payments is newest first, and a
+  refund, a late charge or a hold that has been charged arrives as a new row at the top. So a run
+  reads the list until it meets a charge it has read before, and stops there. A charge is
+  remembered as a SHA-256 of its orders, date and amount, kept here and never sent; a row still
+  marked Pending is not a charge yet.
+- **Caught up, at Walmart, is past an order already read and past thirty days.** An order there
+  changes in place for weeks after it is placed (late shipments, substitutions, refunds), rather
+  than arriving as a new row. So a run presses Next page until it has reached an order it knows
+  *and* is past the thirty days in which orders still change (`settledListing`). Purchase history
+  pages by a cursor the page holds, not by its address (loading `/orders?page=2` afresh shows the
+  first five again), so a run goes to the next page the way a person does, by pressing the page's
+  own **Next page** button, and reads the orders from the request the page then makes.
+- **A backlog is cleared a run at a time.** A run that opens its full twenty with more left on the
+  to-do list is followed an hour later rather than a day later, and so on until the list is empty: a
+  long history is read over a day or so, each run as slow and as small as any other (`catchingUp` in
+  `lib/sync-plan.mjs`).
 - **Only what is new or changed.** The app remembers each order it has read with a fingerprint of
-  the few list fields that change when the order does. The whole list entry cannot be used:
-  Walmart reorders parts of it on every load. At Amazon it is the order's charges, each a date and
-  an amount, taken from every row of the order the run saw on any page of the list, and leaving out
-  a charge still marked Pending: a hold that is then charged is no reason to open the order again,
-  and an order with only holds is opened once one is charged.
-- **It stops for a person.** On the retailer's robot check or a sign-in, the run ends and the window
-  is shown. It never retries through either. Two order pages in a row that are not the order also
-  end it.
+  the few list fields that change when the order does, and an order that has changed goes back on
+  the to-do list. The whole list entry cannot be used: Walmart reorders parts of it on every load.
+  At Amazon it is the order's charges, each a date and an amount, taken from every row of the order
+  the run saw on any page of the list, and leaving out a charge still marked Pending.
+- **A robot check stops the run at once.** The run ends, says so, and stops the schedule. It does
+  not bring its window forward to ask anybody to answer the check, and does not wait for anyone to.
+  Two order pages in a row that are not the order also end it.
 - **A sign-in page stops the schedule on that computer.** A run that meets the retailer's sign-in
   page ends, shows the window, and is not repeated by the schedule: a run each hour that loads a
   sign-in page and leaves is a pattern a retailer could fairly read as a robot's. The next run is
@@ -169,18 +212,16 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 - **Turned away is final until the member says otherwise.** A robot check (by address or by its
   content), or any page answered with a refusal status (Walmart's 412 and 418, Amazon's 503), ends the
   run and stops the daily schedule. The next run is the member's own Sync now; one of theirs that
-  finishes starts the schedule again. For a retailer whose terms name agents, the run does not ask the
-  member to complete a check for it: an agent never answers a CAPTCHA, and neither does a person on
-  its behalf.
+  finishes starts the schedule again. A run never asks the member to complete a check for it: an
+  agent never answers a CAPTCHA, and neither does a person on its behalf.
 - **Daily, once the member has done it once.** After a sync the member started has finished, the
   app repeats it while it is running, in a window kept out of the way unless the retailer
   needs the member. It never starts a retailer's schedule by itself.
 - **When, and how often, is the member's to choose.** With nothing chosen a retailer syncs again a
   day after its last sync finished. In SageFin's Retail sync settings the member can pick an hour
   of the day and how often: daily, every two or three days, or weekly. Never more often than
-  daily, and an answer that asks for more is ignored, except while catching up (above): a run
-  that opened its full twenty is followed an hour later, whatever was chosen, until one opens
-  fewer. The hour is on this computer's own clock.
+  daily, and an answer that asks for more is ignored, except while a backlog is cleared (above).
+  The hour is on this computer's own clock.
   The choice is kept by SageFin, not here, because with several computers the daily sync belongs
   to whichever synced last; it arrives with the check-in answer (`scheduledRunAtMs` in
   `lib/sync-plan.mjs`). Sync now does not move it. The Retail sync page says
@@ -235,9 +276,9 @@ Walmart and Amazon are the retailers the app supports today.
     page itself makes as the member scrolls or clicks into an order. Those are read from outside
     the page, through the DevTools protocol.
   - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
-    Amazon sent it, with scripts, styles and images removed. The one exception is a payments page
-    after the first, which Amazon's own script builds in place: that one is saved as the page then
-    shows it, stripped the same way.
+    Amazon sent it, with scripts, styles and images removed, and the answers to the one request
+    Your Payments itself makes as it is scrolled (`get-transactions`), as Amazon sent them. Those
+    are read from outside the page, through the DevTools protocol, as Walmart's are.
 - **Nothing on a retailer's page is wrapped, injected or changed.**
 - **Outside a sync it makes no request of its own to a retailer.** It saves what the member's own
   browsing loads.
@@ -280,7 +321,7 @@ Walmart and Amazon are the retailers the app supports today.
     repository has published a newer version (`lib/updates.mjs`). That fetches a small public file and sends nothing about the member,
     their account or their orders.
 - **During a sync it asks SageFin which of the listed orders another of your computers has
-  already read** (`lib/read-orders.mjs`), so a second computer does not open ninety days of order
+  already read** (`lib/read-orders.mjs`), so a second computer does not open the order
   pages the first one opened. This is the one request, apart from sending the saved pages
   themselves, that carries something taken from a page. What it carries is a key per order: a
   SHA-256 over the retailer, the order number and the app's fingerprint of what the orders list
@@ -302,7 +343,9 @@ Walmart and Amazon are the retailers the app supports today.
   (`sagefin-desktop/<version> … Electron/…`). During an Amazon sync it also ends
   `Agent/SageFinDesktop`, which Amazon's terms ask of software acting by itself.
 - **It stops at a robot check or a refusal**, says so, and does not try again by itself. It never
-  answers a check, and never asks the member to answer one on a sync's behalf.
+  answers a check, never waits for one to be answered, and never asks the member to answer one on a
+  sync's behalf. During the member's own setup of their history, a check is theirs to answer, as on
+  any page they open.
 - Each retailer has its own persistent browser profile, shared with nothing else. A retailer sign-in
   stays in that profile on the member's computer; SageFin never receives it.
 
@@ -345,16 +388,19 @@ the pause between pages is the same for every retailer, there to keep load down,
 card encrypted, for Amazon's scripts to decrypt in the browser (seen on 2026-10-02). Reading the
 decrypted page would be going round a measure aimed at software that reads pages, which the Agent
 Terms rule out. Your Payments is not encrypted and lists each charge with its order and date, so a
-run opens it, then the details page of each order with a new or changed charge. Its later charges
-have no address. Since Amazon rebuilt the page (seen on 2026-10-20), the list fetches more charges
-by itself when its end is scrolled into view, and adds them below the ones shown, without loading
-a page. So a run scrolls to the end of the list the way a person does, waits for the list to grow,
-and reads it there; when it stops growing, the list has ended. The request is the page's own, under
-the run's marked user agent, never one the app composes. (Before the rebuild, the list had a Next
-Page button, which a run pressed in the same way; a run still does if the page shows one.) If that
-request is refused, the run stops and so does its schedule. How far back is the same rule as Walmart's,
-by the charges' dates. A run cut short starts again from the first page, since these pages have no
-address to resume at; the fingerprints make reading them again cheap.
+run opens it, then the details page of each order on the to-do list. Its later charges have no
+address. Since Amazon rebuilt the page (seen on 2026-10-20), the list fetches more charges by itself
+when its end is scrolled into view, with a request of its own (`get-transactions`, seen on
+2026-10-24) whose answer is the next twenty charges as JSON: amount, date, order, status, payment
+method, and a cursor. So a run scrolls to the end of the list the way a person does, and reads that
+answer; the app never sends the request itself, and never uses the cursor, only sees whether there
+is one. The request is the page's own, under the run's marked user agent. If it is refused, the run
+stops and so does its schedule. A run starts from the top every time, since the list has no address
+to resume at, and stops at the first charge it has read before. An order is opened at
+`/gp/your-account/order-details`, the page SageFin's reader was proved against, not at the address
+the answer gives (the printable summary for a retail order, another page for a digital one), and a
+digital order (D01-…) is not opened at all: its charges reach SageFin in the list, and its own page
+is not one the app knows.
 
 ## Layout
 
@@ -371,7 +417,9 @@ address to resume at; the fingerprints make reading them again cheap.
 | `lib/capture-store.mjs` | Captures on disk: one sealed payload and one record each |
 | `lib/credential-store.mjs` | The upload-only token, sealed, one per site |
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
-| `lib/sync-plan.mjs` | Which orders a sync opens, when a scheduled run is due, and what is remembered between runs |
+| `lib/sync-plan.mjs` | When a scheduled run is due, and what is remembered between runs |
+| `lib/history.mjs` | Setting up the history, the to-do list of orders, when a run is caught up, the strip's words, and setting it up again |
+| `renderer/strip.html`, `main/strip-preload.cjs` | The strip above a retailer's page during setup: the app's own page, in its own view, with Done |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
 | `lib/check-in.mjs` | The five-minute check-in with SageFin: what is sent, and what the answer permits |
 | `lib/read-orders.mjs` | Asking SageFin which listed orders another computer has read: the key sent per order, and what the answer skips |

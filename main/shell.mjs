@@ -24,7 +24,7 @@ function openInBrowser(url) {
  * @param {object} options
  * @param {import("../lib/site.mjs").Site} options.site
  * @param {() => void} options.onRetailers  Opens the retailers window.
- * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, accountName: (code: string, name: unknown) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean }} options.retailers
+ * @param {{ status: () => unknown, open: (code: string) => boolean, sync: (code: string) => boolean, accountName: (code: string, name: unknown) => boolean, consent: (code: string, kind: unknown, answer: unknown) => boolean, setUpHistory: (code: string) => boolean, changeHowFarBack: (code: string, from: unknown) => number | null, startOver: (code: string) => boolean, bankHistory: (value: unknown) => boolean }} options.retailers
  *   What is saved on this computer, and opening a retailer's window. Counts and names only: a
  *   saved page's contents never cross the bridge.
  * @param {{ connect: (credential: unknown) => boolean, disconnect: () => string | null }} options.account
@@ -80,7 +80,10 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
           platform: process.platform,
           // "add-this-computer" only where this computer can hold a key at all. "unlock-here": the
           // page's unlock button goes straight to the operating system's prompt (unlockThisWindow).
-          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", "unlock-here", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
+          // "history-setup": the page may open a retailer's history for the member to set up, and say
+          // where the household's bank history starts, for the strip above it. "history-again": the
+          // page may also change how far back a retailer's history goes, and start it over.
+          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", "unlock-here", "history-setup", "history-again", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
         }
       : null,
   );
@@ -97,6 +100,16 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   ipcMain.handle("shell:set-consent", (event, code, kind, answer) =>
     fromSite(event) && typeof code === "string" ? retailers.consent(code, kind, answer) : false,
   );
+  ipcMain.handle("shell:set-up-history", (event, code) =>
+    fromSite(event) && typeof code === "string" ? retailers.setUpHistory(code) : false,
+  );
+  ipcMain.handle("shell:change-how-far-back", (event, code, from) =>
+    fromSite(event) && typeof code === "string" ? retailers.changeHowFarBack(code, from) : null,
+  );
+  ipcMain.handle("shell:start-history-over", (event, code) =>
+    fromSite(event) && typeof code === "string" ? retailers.startOver(code) : false,
+  );
+  ipcMain.handle("shell:bank-history", (event, value) => (fromSite(event) ? retailers.bankHistory(value) : false));
   ipcMain.handle("shell:connect", (event, credential) => (fromSite(event) ? account.connect(credential) : false));
   ipcMain.handle("shell:disconnect", (event) => (fromSite(event) ? account.disconnect() : null));
   ipcMain.handle("shell:holds-key", (event, householdId) => (fromSite(event) ? privateMode.holdsKeyFor(householdId) : false));
@@ -114,10 +127,11 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
       title: mainWindowTitle("SageFin", s),
       icon,
       show,
-      // Windows and Linux draw the menu as a strip inside the window, in the system's colours,
-      // above an app that has its own. Hidden until Alt is pressed; everything in it is also on
-      // the tray icon. macOS keeps its menu at the top of the screen and ignores this.
-      autoHideMenuBar: true,
+      // Windows and Linux draw the menu as a strip inside the window, in the system's colours. It
+      // stays there rather than hiding until Alt, so the Retailers menu is somewhere a member can
+      // see. macOS keeps its menu at the top of the screen and ignores this. Pop-ups, the unlock
+      // window and a retailer's window still hide theirs.
+      autoHideMenuBar: false,
       webPreferences: {
         session: sessionFor(s),
         preload: path.join(here, "shell-preload.cjs"),

@@ -7,7 +7,7 @@
 // names. The member opens those pages, or a sync opens them for the member (runSync below): a
 // sync loads pages and does nothing else. The user agent is Electron's own and is not changed.
 
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStorage, session, Tray } from "electron";
+import { app, BaseWindow, BrowserWindow, ipcMain, Menu, nativeImage, Notification, safeStorage, session, Tray, WebContentsView } from "electron";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -17,10 +17,11 @@ import { CONSENT_KINDS, allowed, createConsents, maySync, needsChoice, standingA
 import { asCredential, createCredentialStore } from "../lib/credential-store.mjs";
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
-import { RETAILERS, gatherListed, listSignature, retailerByCode, windowTitle } from "../lib/retailers.mjs";
+import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
+import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
-import { PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, openedAllListed, ordersToOpen, readListPage, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
+import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
@@ -32,6 +33,10 @@ import { startUpdates } from "./updates.mjs";
 
 const here = import.meta.dirname;
 const HOME = pathToFileURL(path.join(here, "..", "renderer", "index.html")).href;
+/** The strip above a retailer's page while the member sets up their history: the app's own page. */
+const STRIP = pathToFileURL(path.join(here, "..", "renderer", "strip.html")).href;
+/** How tall the strip is. Below it, the retailer's page, which nothing is drawn over. */
+const STRIP_HEIGHT = 88;
 const ICON = path.join(here, "..", "build", "icon.png");
 
 /**
@@ -101,8 +106,34 @@ let tray = null;
 let updates = null;
 /** Set once the member has asked to quit, so closing the window closes it. */
 let quitting = false;
-/** One open window per retailer. @type {Map<string, BrowserWindow>} */
+/**
+ * A retailer's window: the window, the retailer's page filling it, and above the page, while the
+ * member sets up their history, the app's own strip. Two separate views, so the strip is never on
+ * the retailer's page and nothing of the page is changed to make room for it. `webContents` is the
+ * retailer's page.
+ * @typedef {Electron.BaseWindow & { webContents: Electron.WebContents, strip: Electron.WebContentsView, showStrip: (on: boolean) => void }} RetailerWindow
+ */
+/** One open window per retailer. @type {Map<string, RetailerWindow>} */
 const windows = new Map();
+/** Retailers whose history the member is setting up in an open window now. @type {Set<string>} */
+const settingUp = new Set();
+/** Retailers whose window shows the robot check now: the strip says so, and it is the member's. @type {Set<string>} */
+const checking = new Set();
+/**
+ * What the member's own browsing has listed in each retailer's window since it opened, so an order
+ * whose charges arrive in two answers is fingerprinted from both (`gatherListed`).
+ * @type {Map<string, import("../lib/retailers.mjs").ListedOrder[]>}
+ */
+const browsed = new Map();
+/**
+ * Where the household's bank history starts, per site, as the signed-in web page last said
+ * (lib/history.mjs, BankHistory). Never asked of SageFin by the app: the page reads it with the
+ * member's own sign-in and hands it over the bridge.
+ * @type {Map<string, import("../lib/history.mjs").BankHistory>}
+ */
+const bankHistories = new Map();
+/** Whether the last check-in said the household is in private mode and locked, per site. @type {Map<string, boolean>} */
+const lockedSites = new Map();
 /** The last thing worth telling the member about each retailer. @type {Map<string, string>} */
 const notices = new Map();
 
@@ -182,6 +213,21 @@ async function start() {
     openRetailer(retailer);
     return true;
   });
+  // Setting up a retailer's history, and the two ways of setting it up again.
+  ipcMain.handle("desktop:set-up-history", (event, code) => fromHome(event) && typeof code === "string" && setUpHistory(code));
+  ipcMain.handle("desktop:change-how-far-back", (event, code, from) =>
+    fromHome(event) && typeof code === "string" ? changeHowFarBack(code, from) : null,
+  );
+  ipcMain.handle("desktop:start-over", (event, code) => fromHome(event) && typeof code === "string" && startHistoryOver(code));
+  // The strip above a retailer's page: what it says, and its Done button.
+  ipcMain.handle("strip:state", (event) => {
+    const code = stripOwner(event);
+    return code ? stripState(code) : null;
+  });
+  ipcMain.handle("strip:done", (event) => {
+    const code = stripOwner(event);
+    return code ? finishSetup(code) : false;
+  });
 
   if (smokeFixture) {
     setTimeout(() => {
@@ -249,6 +295,8 @@ async function start() {
         if (!retailer || !retailer.syncs || syncing.has(code) || !syncStates) return false;
         // Not before the member has chosen, where the retailer's terms make it their choice.
         if (!maySyncNow(retailer)) return false;
+        // Not while the member is setting the history up in its window.
+        if (settingUp.has(code)) return false;
         const visible = showWindowForMemberSync(syncStates.get(site.key, retailer.code));
         void runSync(retailer, { visible, by: "member" });
         return true;
@@ -263,6 +311,22 @@ async function start() {
         if (!needsChoice(retailer, which)) return false;
         consents.set(retailer, which, answer);
         changed();
+        return true;
+      },
+      // The member asked, from the Retail sync page, to set up this retailer's history.
+      setUpHistory: (code) => setUpHistory(code),
+      // The two other ways of setting it up again, from the same page, as the retailers window has
+      // them. The page sends a retailer's code and a date; both are checked here.
+      changeHowFarBack: (code, from) => changeHowFarBack(code, from),
+      startOver: (code) => startHistoryOver(code),
+      // Where the household's bank history starts, as the signed-in page read it: a date, or that
+      // the household is locked and SageFin cannot say. Only the strip uses it.
+      bankHistory(value) {
+        const given = /** @type {any} */ (value);
+        if (!given || typeof given !== "object") return false;
+        const start = typeof given.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(given.start) ? given.start : null;
+        bankHistories.set(site.key, { start, locked: given.locked === true });
+        refreshStrips();
         return true;
       },
       // What the member calls the account they are signed in to here, where the retailer's pages
@@ -509,6 +573,8 @@ async function runScheduled() {
     if (!maySyncNow(retailer)) continue;
     // With no answer, the app runs as it would with nobody to ask.
     if (!scheduleAllowedBy(sagefinAnswer(retailer.code))) continue;
+    // Not while the member is setting its history up.
+    if (settingUp.has(retailer.code)) continue;
     // Too old to share the daily sync as SageFin now runs it.
     if (updateRequired()) continue;
     if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY, chosenSchedule(retailer.code))) {
@@ -585,6 +651,9 @@ async function checkInOnce() {
   if (result.status !== "answered") return;
   // A private household's lock, and whether its bank has new activity: a reason to ask, counted here.
   if (asked.key === site.key) privateMode?.onCheckIn(result.privateMode ?? null);
+  // The strip says it cannot show where the bank history starts while the household is locked.
+  lockedSites.set(asked.key, result.privateMode?.locked === true);
+  refreshStrips();
 
   lastCheckIn = { at: Date.now(), siteKey: asked.key, answers: result.answers };
   if (result.minimumVersion) minimumVersions.set(asked.key, result.minimumVersion);
@@ -625,18 +694,18 @@ const pauseBetweenOrders =
 
 /**
  * Loads a page in a retailer's window and waits for it to finish.
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @param {string} url
  * @returns {Promise<boolean>} False when the page did not load.
  */
 function load(win, url) {
-  return navigate(win, () => void win.loadURL(url).catch(() => {}));
+  return navigate(win, () => void win.webContents.loadURL(url).catch(() => {}));
 }
 
 /**
  * Runs a script in the page that moves it to another page, such as submitting the page's own
  * form, and waits for that page as `load` does. False when the script did not move it.
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @param {string} script  An expression that navigates and returns true, or returns false.
  */
 function follow(win, script) {
@@ -650,7 +719,7 @@ function follow(win, script) {
 
 /**
  * Starts a navigation and waits for its page to finish loading.
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @param {(fail: () => void) => void} begin
  * @returns {Promise<boolean>}
  */
@@ -706,31 +775,21 @@ const pathOf = (url) => {
   }
 };
 
-/** The HTTP status of the page each retailer window last navigated to. @type {WeakMap<BrowserWindow, number>} */
+/** The HTTP status of the page each retailer window last navigated to. @type {WeakMap<RetailerWindow, number>} */
 const lastStatus = new WeakMap();
 
-/** Each retailer window's wait for its response reader to start. @type {WeakMap<BrowserWindow, Promise<void>>} */
+/** Each retailer window's wait for its response reader to start. @type {WeakMap<RetailerWindow, Promise<void>>} */
 const listening = new WeakMap();
 
 /**
  * What a sync is waiting for the page to fetch, per window: a capture kind, and who to tell. The
  * answer is the response's text, or the status the retailer refused it with.
  * @typedef {{ payload: string | null, status: number | null }} PageAnswer
- * @type {WeakMap<BrowserWindow, { kind: string, tell: (answer: PageAnswer) => void }>}
+ * @type {WeakMap<RetailerWindow, { kind: string, tell: (answer: PageAnswer) => void }>}
  */
 const awaited = new WeakMap();
 
-/**
- * While a sync waits for a list to change in place, the refusal the page's own request met, if it
- * met one. There is no page load to carry the status and no response the app can name, so the
- * statuses a retailer refuses with are watched for on anything the page fetches from the retailer.
- * @type {WeakMap<BrowserWindow, { host: string, status: number | null }>}
- */
-const watchedInPlace = new WeakMap();
-/** What a retailer answers when it is turning software away: Walmart's 412 and 418, Amazon's 503, and 429. */
-const REFUSALS = new Set([412, 418, 429, 503]);
-
-/** @param {BrowserWindow} win @param {string} kind @param {PageAnswer} answer */
+/** @param {RetailerWindow} win @param {string} kind @param {PageAnswer} answer */
 function answerAwaited(win, kind, answer) {
   const waiting = awaited.get(win);
   if (!waiting || waiting.kind !== kind) return;
@@ -742,7 +801,7 @@ function answerAwaited(win, kind, answer) {
  * Presses something in the page that makes the page fetch more, and waits for what it fetches.
  * `pressed` is false when there was nothing to press. A press that is answered with a refusal comes
  * back as its status; one that is never answered comes back with neither.
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @param {string} script  An expression that presses and returns true, or returns false.
  * @param {string} kind    The capture kind of the response to wait for.
  * @returns {Promise<PageAnswer & { pressed: boolean }>}
@@ -768,12 +827,12 @@ function pressAndRead(win, script, kind) {
   });
 }
 
-/** The data a retailer's page embeds, or null. @param {BrowserWindow} win @returns {Promise<string | null>} */
+/** The data a retailer's page embeds, or null. @param {RetailerWindow} win @returns {Promise<string | null>} */
 /**
  * What a sync reads from the page it has loaded, to know what to open next. Never what is saved,
  * which is read the way the member's own browsing is. A retailer saved from its HTML is read as the
  * page shows it.
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @param {import("../lib/retailers.mjs").Retailer} retailer
  */
 const pageData = (win, retailer) =>
@@ -801,7 +860,7 @@ async function runSync(retailer, { visible, by }) {
   if (!store || !syncStates || !retailer.syncs || syncing.has(retailer.code)) return;
   // Every way a sync starts comes through here, so this is the gate that cannot be walked round.
   if (!maySyncNow(retailer)) return;
-  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, nextPageInPlace, listPagesPerRun } = retailer;
+  const { listedOrders, hasNextListPage, listPageUrl, orderIdIn, nextPageScript, nextPageKind, listPagesPerRun } = retailer;
   if (!listedOrders || !hasNextListPage || !listPageUrl || !orderIdIn) return;
   const states = syncStates;
   const siteKey = site.key;
@@ -871,21 +930,23 @@ async function runSync(retailer, { visible, by }) {
    * Whether the retailer turned the page just loaded away: its robot check, by address or by content,
    * or a refusal status (Walmart's 412 and 418, Amazon's 503). Any of them ends the run.
    * @param {string | null} [data]  The page's data, when it has been read.
+   * @returns {{ text: string, check: boolean } | null}
    */
   const turnedAway = (data = null) => {
     const url = win.webContents.getURL();
     const status = lastStatus.get(win) ?? 200;
     if (retailer.isChallenge(url, { anyHost: Boolean(retailerFixture) }) || (data && retailer.isChallengePayload?.(data))) {
-      // An agent never answers a CAPTCHA, by Amazon's terms, and a person answering one so that a
-      // run can carry on would be answering it for the agent. So the run says what happened, and
-      // does not ask the member to complete the check.
-      return retailer.agent
-        ? `${retailer.name} asked whether a person is there, and the sync stopped. It will not run again by itself.`
-        : `${retailer.name} is checking this browser. Complete its check in the window; the sync has stopped for now.`;
+      // A run never answers a robot check, and does not wait for anybody to: a person answering one
+      // so that a run can carry on would be answering it for the run, which Amazon's terms rule out
+      // for an agent and no retailer's check is there for. So the run stops at once and says so,
+      // and its window is not brought forward to ask.
+      return { text: `${retailer.name} showed its robot check, so the sync stopped. It will not run again by itself.`, check: true };
     }
-    if (status >= 400) return `${retailer.name} turned the sync away (${status}). It will not run again by itself.`;
+    if (status >= 400) return { text: `${retailer.name} turned the sync away (${status}). It will not run again by itself.`, check: false };
     return null;
   };
+  /** Ends a run the retailer turned away. @param {{ text: string, check: boolean }} why */
+  const stopTurnedAway = (why) => finish(why.text, { needsMember: !why.check, refused: true });
 
   try {
     const firstUrl = listPageUrl(1);
@@ -895,30 +956,31 @@ async function runSync(retailer, { visible, by }) {
     if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
     let list = await pageData(win, retailer);
     const stop = turnedAway(list);
-    if (stop) return finish(stop, { needsMember: true, refused: true });
+    if (stop) return stopTurnedAway(stop);
 
     const listKind = retailer.captureKind(firstUrl) ?? "";
     if (!list || retailer.isSignedOut(listKind, list)) {
       return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
     }
 
-    // Page through the orders list until readListPage says stop. A page after the first is reached
-    // as a person reaches it, and is saved by the same code that saves what a person opens.
+    // List until caught up (lib/history.mjs), putting what is new or changed on the to-do list. A
+    // page after the first is reached as a person reaches it, and is saved by the same code that
+    // saves what a person opens.
     /** @type {import("../lib/retailers.mjs").ListedOrder[]} */
     let listed = [];
     // What this computer has read is told to SageFin once a run, with the first question.
     let toldSageFin = false;
     /**
-     * Asks SageFin which of a list page's orders another of the member's computers has read, and
+     * Asks SageFin which of these orders another of the member's computers has read, and
      * remembers those as read here (lib/read-orders.mjs). With no answer, nothing changes.
-     * @param {import("../lib/retailers.mjs").ListedOrder[]} pageOrders
+     * @param {import("../lib/retailers.mjs").ListedOrder[]} orders
      */
-    const learnWhatWasRead = async (pageOrders) => {
+    const learnWhatWasRead = async (orders) => {
       // A stand-in page is not an order.
       if (retailerFixture && siteKey !== "local") return;
       const credential = credentials?.get(siteKey);
       if (!credential) return;
-      const asking = ordersToAskAbout(pageOrders, state.seen);
+      const asking = ordersToAskAbout(orders, state.seen);
       if (asking.length === 0 && toldSageFin) return;
       const known = await shareRead({
         site: siteOrigin,
@@ -929,45 +991,52 @@ async function runSync(retailer, { visible, by }) {
         fetch,
       });
       if (known) toldSageFin = true;
-      if (adoptRead(retailer.code, pageOrders, state.seen, known) > 0) states.set(siteKey, retailer.code, state);
+      if (adoptRead(retailer.code, orders, state.seen, known) > 0) {
+        dropRead(state);
+        states.set(siteKey, retailer.code, state);
+      }
     };
-    let pageNumber = 1;
-    let reachedEnd = false;
+    const maxPages = listPagesPerRun ?? MAX_LIST_PAGES_PER_RUN;
+    let reachedKnown = false;
+    let caughtUp = false;
     for (let pagesRead = 1; ; pagesRead += 1) {
       // Each order fingerprinted from every row of it the run has seen, not only this page's.
       const gathered = gatherListed(listed, listedOrders(list));
       listed = gathered.listed;
       const pageOrders = gathered.page;
+      const already = new Set(listed.map((o) => o.id));
+      const fresh = pageOrders.filter((o) => !already.has(o.id));
+      listed.push(...fresh);
       await learnWhatWasRead(pageOrders);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
-      const step = readListPage({
-        pageOrders,
-        listed,
-        seen: state.seen,
-        caughtUp: state.caughtUp,
-        hasNextPage: hasNextListPage(list),
-        pagesRead,
-        now: new Date(),
-        grew: gathered.grew,
-        maxPages: listPagesPerRun,
-      });
-      listed.push(...step.fresh);
-      if (step.end) reachedEnd = true;
-      if (!step.more) break;
 
-      // Not yet caught up: after page 1, which is where new orders are, carry on from where the
-      // last finished run stopped rather than listing again what it already opened. Only a list
-      // whose pages have addresses can be resumed; one paged by its own form starts from page 1.
-      pageNumber = !nextPageScript && pageNumber === 1 && !state.caughtUp && state.listedThroughPage
-        ? state.listedThroughPage
-        : pageNumber + 1;
-      progress(`Reading your orders, page ${pageNumber}…`);
+      // Caught up? Asked of what was known before this page, so the page's own orders and charges
+      // do not count as known.
+      const charges = retailer.listedCharges?.(list) ?? [];
+      if (retailer.caughtUpWhen === "first_read_charge") {
+        caughtUp = reachedReadCharge(charges, state.charges);
+      } else {
+        const settled = settledListing({ pageOrders, state, reachedKnown, now: new Date() });
+        reachedKnown = settled.reachedKnown;
+        caughtUp = settled.settled;
+      }
+      enqueue(state, pageOrders);
+      noteCharges(state, charges);
+      states.set(siteKey, retailer.code, state);
+
+      // The retailer showed the same page again: nothing new and nothing more of what was. Not an
+      // end, only a reason to stop asking.
+      if (pagesRead > 1 && fresh.length === 0 && gathered.grew === 0) break;
+      if (caughtUp || !hasNextListPage(list) || pagesRead >= maxPages) break;
+
+      progress(`Reading your orders, page ${pagesRead + 1}…`);
       await pause(pauseBetweenOrders);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
 
       // A list with no address for its next page is moved on by the page's own Next control,
-      // pressed as a person presses it: the request the page itself makes, under the run's user
-      // agent. Where the page fetches the next orders by itself, they are read from that request.
+      // pressed as a person presses it (or, at Amazon, scrolled to its end as a person scrolls):
+      // the request the page itself makes, under the run's user agent. Where the page fetches the
+      // next orders by itself, they are read from the answer to that request.
       if (nextPageScript && nextPageKind) {
         const answer = await pressAndRead(win, nextPageScript, nextPageKind);
         if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
@@ -979,90 +1048,26 @@ async function runSync(retailer, { visible, by }) {
         }
         // Pressing may have landed on the retailer's robot check instead of fetching anything.
         const stoppedOnPress = turnedAway();
-        if (stoppedOnPress) return finish(stoppedOnPress, { needsMember: true, refused: true });
-        // Nothing to press, or nothing came back: the list ends here for this run. Not the end of
-        // the history, so the run does not claim to have caught up.
+        if (stoppedOnPress) return stopTurnedAway(stoppedOnPress);
+        // Nothing to press, or nothing came back: the list ends here for this run.
         if (!answer.payload) break;
         list = answer.payload;
         continue;
       }
 
-      // Where the page's own script replaces the list where it stands, there is no page to wait
-      // for and no response the app can name. The run presses, then watches the list on the page
-      // until it shows other orders, and saves the page as it then is: for these pages what is
-      // sent is the page as its script left it, not as the retailer first sent it.
-      if (nextPageScript && nextPageInPlace) {
-        const before = listSignature(retailer, list);
-        let navigated = false;
-        const onLoad = () => {
-          navigated = true;
-        };
-        win.webContents.on("did-finish-load", onLoad);
-        const watch = { host: new URL(win.webContents.getURL()).host, status: /** @type {number | null} */ (null) };
-        watchedInPlace.set(win, watch);
-        /** @type {string | null} */
-        let moved = null;
-        try {
-          const pressed = await win.webContents.executeJavaScript(nextPageScript).catch(() => false);
-          for (let waited = 0; pressed === true && waited < 45_000 && !win.isDestroyed(); waited += 500) {
-            await pause(500);
-            if (win.isDestroyed() || watch.status) break;
-            const now = await pageData(win, retailer).catch(() => null);
-            if (!now) continue;
-            // A sign-in page or the robot check has no list either; both are looked at below.
-            if (retailer.isSignedOut(listKind, now) || retailer.isChallengePayload?.(now) || retailer.isChallenge(win.webContents.getURL(), { anyHost: Boolean(retailerFixture) })) {
-              moved = now;
-              break;
-            }
-            const signature = listSignature(retailer, now);
-            if (signature && signature !== before) {
-              moved = now;
-              break;
-            }
-          }
-        } finally {
-          watchedInPlace.delete(win);
-          if (!win.isDestroyed()) win.webContents.off("did-finish-load", onLoad);
-        }
-        if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
-        if (watch.status) {
-          return finish(`${retailer.name} turned the sync away (${watch.status}). It will not run again by itself.`, {
-            needsMember: true,
-            refused: true,
-          });
-        }
-        const stoppedInPlace = turnedAway(moved);
-        if (stoppedInPlace) return finish(stoppedInPlace, { needsMember: true, refused: true });
-        // Nothing to press, or the list never changed: the list ends here for this run.
-        if (!moved) break;
-        if (retailer.isSignedOut(listKind, moved)) {
-          return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
-        }
-        // If pressing loaded a new page after all, that page was saved as it arrived. Otherwise
-        // nothing has saved these orders yet, so the page is saved here, stripped like the first.
-        if (!navigated) {
-          const payload = stripHtml(moved);
-          if (payload && Buffer.byteLength(payload) <= MAX_CAPTURE_BYTES) {
-            keep(retailer, listKind, payload);
-          }
-        }
-        list = moved;
-        continue;
-      }
-
-      const url = nextPageScript ? null : listPageUrl(pageNumber);
+      const url = nextPageScript ? null : listPageUrl(pagesRead + 1);
       const loadedPage = nextPageScript
         ? await follow(win, nextPageScript)
         : await load(win, retailerFixture ? onFixture(/** @type {string} */ (url), retailerFixture) : /** @type {string} */ (url));
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const next = loadedPage ? await pageData(win, retailer) : null;
       const stoppedOnList = turnedAway(next);
-      if (stoppedOnList) return finish(stoppedOnList, { needsMember: true, refused: true });
+      if (stoppedOnList) return stopTurnedAway(stoppedOnList);
 
       // The next page could not be reached: nothing to press, or pressing loaded no page. That is
-      // not a sign-in and not a refusal, so the run keeps what it has listed and opens those. It
-      // does not claim the history was read to its end. (On 2026-10-03 a real Amazon run ended
-      // here with "Sign in to Amazon", having listed 19 orders and opened none.)
+      // not a sign-in and not a refusal, so the run keeps what it has listed and opens those.
+      // (On 2026-10-03 a real Amazon run ended here with "Sign in to Amazon", having listed 19
+      // orders and opened none.)
       if (!next) break;
       if (retailer.isSignedOut(listKind, next)) {
         return finish(`Sign in to ${retailer.name} in its window, then sync again.`, { needsMember: true, signedOut: true });
@@ -1070,12 +1075,14 @@ async function runSync(retailer, { visible, by }) {
       list = next;
     }
 
-    const todo = ordersToOpen(listed, state.seen);
+    // The next twenty on the to-do list, newest first, whichever run or setup put them there. Asked
+    // about first: another computer may have read some since they were listed.
+    await learnWhatWasRead(nextToOpen(state.queue, MAX_ORDERS_PER_RUN));
+    if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
+    const todo = nextToOpen(state.queue, MAX_ORDERS_PER_RUN);
     if (logPages) {
       // Counts only: never an order number, a date or a fingerprint.
-      const neverRead = listed.filter((o) => !Object.hasOwn(state.seen, o.id)).length;
-      const changed = listed.filter((o) => Object.hasOwn(state.seen, o.id) && state.seen[o.id] !== o.fingerprint).length;
-      console.log(`sync: listed ${listed.length} orders; ${neverRead} never read, ${changed} changed since read; opening ${todo.length}`);
+      console.log(`sync: listed ${listed.length} orders${caughtUp ? ", caught up" : ""}; ${state.queue.length} to read; opening ${todo.length}`);
     }
     let read = 0;
     let missed = 0;
@@ -1088,12 +1095,12 @@ async function runSync(retailer, { visible, by }) {
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const data = loaded ? await pageData(win, retailer) : null;
       const stopped = turnedAway(data);
-      if (stopped) return finish(stopped, { needsMember: true, refused: true });
+      if (stopped) return stopTurnedAway(stopped);
 
       if (data && orderIdIn(data) === order.id) {
         // The page was saved by the same code that saves it when the member opens it. This only
-        // remembers that it has been, in the state the list showed.
-        state.seen[order.id] = order.fingerprint;
+        // takes it off the to-do list, read in the state the list showed.
+        markRead(state, order);
         states.set(siteKey, retailer.code, state);
         read += 1;
         missed = 0;
@@ -1107,17 +1114,6 @@ async function runSync(retailer, { visible, by }) {
       }
     }
 
-    // Only now, and only with every listed order opened: a run that stopped partway, or listed
-    // more than it could open, must not move the place the next one resumes from past orders it
-    // never reached, nor call the history caught up while some of it is still unread.
-    const openedAll = openedAllListed(listed, state.seen);
-    if (openedAll && reachedEnd) {
-      state.caughtUp = true;
-      state.listedThroughPage = null;
-    } else if (openedAll && !state.caughtUp && !nextPageScript) {
-      state.listedThroughPage = pageNumber > 1 ? pageNumber : null;
-    }
-
     // What this run read, told now rather than at the next run's first question, so another
     // computer that syncs before then does not read it again. Not waited for: it is never the
     // reason a sync is slow to finish, and the next run says it all again.
@@ -1126,10 +1122,12 @@ async function runSync(retailer, { visible, by }) {
       void shareRead({ site: siteOrigin, secret: credential.secret, retailer: retailer.code, asked: [], read: readKeys(retailer.code, state.seen), fetch });
     }
 
+    const left = state.queue.length;
     finish(
-      todo.length === 0
-        ? "Everything listed was already read."
-        : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`,
+      (todo.length === 0
+        ? "Nothing new to read."
+        : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`) +
+        (left > 0 ? ` ${left} still to read.` : ""),
       { finished: true, orders: read },
     );
   } catch (error) {
@@ -1286,6 +1284,17 @@ function syncStatus(code) {
     accountName: retailerByCode(code)?.memberNamesAccount ? (accountNames?.get(site.key, code) ?? null) : null,
     syncing: syncing.has(code),
     syncProgress: syncing.get(code) ?? null,
+    // The member's setup of the history, and the to-do list it left: counts and a date, nothing
+    // more. `toRead` is how many orders' own pages are still to be read.
+    history: state
+      ? {
+          setup: state.setup.status,
+          settingUp: settingUp.has(code),
+          reachedDate: state.setup.reachedDate,
+          orders: state.setup.listedIds.length,
+          toRead: state.queue.length,
+        }
+      : null,
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
     lastSync: state?.lastResult ?? null,
@@ -1312,6 +1321,133 @@ function tell(code, notice) {
   changed();
 }
 
+/**
+ * What a list page the member's own browsing loaded adds to the to-do list, and, while they set up
+ * the history, to the setup. Not during a run, which reads the same pages itself and holds its own
+ * copy of this memory.
+ * @param {import("../lib/retailers.mjs").Retailer} retailer
+ * @param {string} kind
+ * @param {string} payload
+ */
+function noteListed(retailer, kind, payload) {
+  if (!syncStates || !retailer.listedOrders || syncing.has(retailer.code) || !LIST_KINDS.includes(kind)) return;
+  const orders = retailer.listedOrders(payload);
+  const charges = retailer.listedCharges?.(payload) ?? [];
+  if (orders.length === 0 && charges.length === 0) return;
+  const gathered = gatherListed(browsed.get(retailer.code) ?? [], orders);
+  const known = new Set(gathered.listed.map((o) => o.id));
+  browsed.set(retailer.code, [...gathered.listed, ...gathered.page.filter((o) => !known.has(o.id))]);
+
+  const state = syncStates.get(site.key, retailer.code);
+  const { alreadyRead } = enqueue(state, gathered.page);
+  noteCharges(state, charges);
+  if (settingUp.has(retailer.code)) noteSetup(state.setup, gathered.page, alreadyRead, charges.map((c) => c.date));
+  syncStates.set(site.key, retailer.code, state);
+  refreshStrips();
+  changed();
+}
+
+/**
+ * Opens a retailer's history page for the member to scroll back through, with the strip above it.
+ * Carries on from where an earlier setup got to. Not during a run, and not before the member has
+ * chosen to let the app save the retailer's pages, where that is their choice.
+ * @param {string} code
+ */
+function setUpHistory(code) {
+  const retailer = retailerByCode(code);
+  if (!retailer?.syncs || !retailer.listPageUrl || !syncStates || syncing.has(code)) return false;
+  if (!mayDo(retailer, "saving")) {
+    tell(code, `Choose whether to save ${retailer.name}'s pages in Settings → Retail sync, then set up its history.`);
+    return false;
+  }
+  const state = syncStates.get(site.key, code);
+  if (state.setup.status !== "started") {
+    state.setup = { ...state.setup, status: "started", startedAt: new Date().toISOString(), doneAt: null };
+    syncStates.set(site.key, code, state);
+  }
+  settingUp.add(code);
+  const win = openRetailer(retailer, { navigate: false });
+  win.showStrip(true);
+  const first = retailer.listPageUrl(1);
+  void load(win, retailerFixture ? onFixture(first, retailerFixture) : first);
+  changed();
+  return true;
+}
+
+/**
+ * Done, from the strip: the setup is finished and its window closes. What it saw stays on the
+ * to-do list for the runs that follow.
+ * @param {string} code
+ */
+function finishSetup(code) {
+  if (!syncStates || !settingUp.has(code)) return false;
+  const state = syncStates.get(site.key, code);
+  state.setup = { ...state.setup, status: "done", doneAt: new Date().toISOString() };
+  syncStates.set(site.key, code, state);
+  settingUp.delete(code);
+  const win = windows.get(code);
+  if (win && !win.isDestroyed()) win.close();
+  changed();
+  return true;
+}
+
+/**
+ * "Change how far back": the to-do list's orders older than `from` are dropped and never opened.
+ * @param {string} code
+ * @param {unknown} given  YYYY-MM-DD, from the retailers window or the web page: checked here.
+ * @returns {number | null}  How many were dropped, or null when it could not be done now.
+ */
+function changeHowFarBack(code, given) {
+  const retailer = retailerByCode(code);
+  const from = howFarBackDate(given);
+  if (!retailer?.syncs || !syncStates || syncing.has(code) || !from) return null;
+  const state = syncStates.get(site.key, code);
+  const dropped = dropOlderThan(state, from);
+  syncStates.set(site.key, code, state);
+  tell(code, dropped === 0 ? "Nothing on the to-do list was older than that." : `${dropped} older order${dropped === 1 ? "" : "s"} taken off the to-do list.`);
+  return dropped;
+}
+
+/**
+ * "Start over": forgets the to-do list and everything read here, then opens setup. What SageFin
+ * already holds stays there; it is removed only from SageFin.
+ * @param {string} code
+ */
+function startHistoryOver(code) {
+  const retailer = retailerByCode(code);
+  if (!retailer?.syncs || !syncStates || syncing.has(code)) return false;
+  const state = syncStates.get(site.key, code);
+  startOver(state);
+  syncStates.set(site.key, code, state);
+  browsed.delete(code);
+  return setUpHistory(code);
+}
+
+/** Which retailer's strip a call came from, or null. @param {Electron.IpcMainInvokeEvent} event */
+function stripOwner(event) {
+  for (const [code, win] of windows) {
+    if (!win.isDestroyed() && event.sender === win.strip.webContents && event.senderFrame?.url === STRIP) return code;
+  }
+  return null;
+}
+
+/** What a retailer's strip shows now. @param {string} code */
+function stripState(code) {
+  const retailer = retailerByCode(code);
+  if (!retailer || !syncStates || !settingUp.has(code)) return null;
+  const given = bankHistories.get(site.key) ?? null;
+  // A date SageFin's page gave is shown; with none, a locked household is said to be locked.
+  const bank = given?.start ? given : lockedSites.get(site.key) ? { start: null, locked: true } : given;
+  return stripText({ name: retailer.name, setup: syncStates.get(site.key, code).setup, bank, checking: checking.has(code) });
+}
+
+/** Tells each open strip to ask again. */
+function refreshStrips() {
+  for (const [code, win] of windows) {
+    if (!win.isDestroyed() && settingUp.has(code) && !win.strip.webContents.isDestroyed()) win.strip.webContents.send("strip:changed");
+  }
+}
+
 /** Both windows that list the retailers ask again when something here changes. */
 function changed() {
   home?.webContents.send("desktop:changed");
@@ -1326,7 +1462,7 @@ function changed() {
  * @param {{ show?: boolean, navigate?: boolean }} [options]
  *   `show: false` for a scheduled sync, which keeps its window out of the way. `navigate: false`
  *   when the caller is about to load a page itself.
- * @returns {BrowserWindow}
+ * @returns {RetailerWindow}
  */
 function openRetailer(retailer, { show = true, navigate = true } = {}) {
   const existing = windows.get(retailer.code);
@@ -1343,19 +1479,44 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
   const ses = session.fromPartition(`persist:retailer-${retailer.code}`);
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
 
-  const win = new BrowserWindow({
-    width: 1280,
-    height: 900,
-    title: retailer.name,
-    show,
-    autoHideMenuBar: true,
-    // A window out of sight still has to load its pages at full speed.
+  const win = /** @type {RetailerWindow} */ (new BaseWindow({ width: 1280, height: 900, title: retailer.name, show, autoHideMenuBar: true }));
+  // The retailer's page. A window out of sight still has to load its pages at full speed.
+  const page = new WebContentsView({
     webPreferences: { session: ses, contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
+  // The strip: the app's own page, from its own files, with a bridge of two calls (main/strip-preload.cjs).
+  const strip = new WebContentsView({
+    webPreferences: { preload: path.join(here, "strip-preload.cjs"), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  strip.webContents.on("will-navigate", (event) => event.preventDefault());
+  strip.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.contentView.addChildView(page);
+  win.contentView.addChildView(strip);
+  let stripShown = false;
+  const layout = () => {
+    if (win.isDestroyed()) return;
+    const { width, height } = win.getContentBounds();
+    const top = stripShown ? STRIP_HEIGHT : 0;
+    strip.setBounds({ x: 0, y: 0, width, height: top });
+    page.setBounds({ x: 0, y: top, width, height: Math.max(0, height - top) });
+  };
+  for (const event of /** @type {const} */ (["resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"])) {
+    win.on(/** @type {any} */ (event), layout);
+  }
+  Object.assign(win, {
+    webContents: page.webContents,
+    strip,
+    showStrip(/** @type {boolean} */ on) {
+      if (on && !stripShown && strip.webContents.getURL() !== STRIP) void strip.webContents.loadURL(STRIP).catch(() => {});
+      stripShown = on;
+      layout();
+    },
+  });
+  layout();
   windows.set(retailer.code, win);
   // A window with nothing loaded has no page for the response reader to attach to, and its start
   // waits for one. A blank page gives it one before the retailer's first page is asked for.
-  void win.loadURL("about:blank").catch(() => {});
+  void win.webContents.loadURL("about:blank").catch(() => {});
   tell(retailer.code, null);
 
   // The retailer's own links stay in this window; nothing else opens from it.
@@ -1363,7 +1524,7 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
   win.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const host = new URL(url).hostname;
-      if (host === startHost || host.endsWith(`.${startHost}`)) void win.loadURL(url);
+      if (host === startHost || host.endsWith(`.${startHost}`)) void win.webContents.loadURL(url);
     } catch {
       // Not a URL; nothing to open.
     }
@@ -1378,7 +1539,7 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
   const showAddress = (/** @type {string} */ url) => {
     if (!win.isDestroyed()) win.setTitle(windowTitle(retailer, url));
   };
-  win.on("page-title-updated", (event) => event.preventDefault());
+  // A window of views takes no title from its page: the title is only ever the address above.
   win.webContents.on("did-navigate", (_event, url, httpResponseCode) => {
     lastStatus.set(win, httpResponseCode);
     showAddress(url);
@@ -1399,6 +1560,14 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
   });
   win.on("closed", () => {
     windows.delete(retailer.code);
+    browsed.delete(retailer.code);
+    checking.delete(retailer.code);
+    // Closing the window during setup keeps what it saw and how far it got; the setup is still
+    // started, and setting up again carries on from there.
+    settingUp.delete(retailer.code);
+    // A window of views does not close its pages by itself.
+    if (!page.webContents.isDestroyed()) page.webContents.close();
+    if (!strip.webContents.isDestroyed()) strip.webContents.close();
     changed();
   });
 
@@ -1432,13 +1601,13 @@ function fixtureUrl(fixture) {
  * one client, so opening DevTools on the window takes it away.
  *
  * @param {import("../lib/retailers.mjs").Retailer} retailer
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  * @returns {() => boolean}
  */
 function readResponses(retailer, win) {
   const dbg = win.webContents.debugger;
   let attached = false;
-  /** Requests whose bodies are wanted once they finish. @type {Map<string, string>} */
+  /** Requests whose bodies are wanted once they finish, and whether each is a page's HTML. @type {Map<string, { kind: string, html: boolean }>} */
   const wanted = new Map();
 
   try {
@@ -1466,19 +1635,15 @@ function readResponses(retailer, win) {
 
   dbg.on("message", (_event, method, params) => {
     if (method === "Network.responseReceived") {
-      const watched = watchedInPlace.get(win);
-      if (watched && !watched.status && (params.type === "XHR" || params.type === "Fetch") && REFUSALS.has(params.response.status)) {
-        try {
-          if (new URL(params.response.url).host === watched.host) watched.status = params.response.status;
-        } catch {
-          // Not a URL the page could have asked the retailer for.
-        }
-      }
       const anyHost = Boolean(retailerFixture);
-      // A retailer whose data is its HTML: the page as it was sent, before any script ran on it.
+      // A retailer whose data is its HTML: the page as it was sent, before any script ran on it,
+      // and the page's own data requests the retailer names (Amazon's get-transactions).
+      const isDocument = params.type === "Document";
       const kind =
         retailer.saves === "document"
-          ? params.type === "Document" ? retailer.captureKind(params.response.url, { anyHost }) : null
+          ? isDocument
+            ? retailer.captureKind(params.response.url, { anyHost })
+            : params.type === "XHR" || params.type === "Fetch" ? retailer.responseKind(params.response.url, { anyHost }) : null
           : retailer.responseKind(params.response.url, { anyHost });
       if (logPages && params.type === "Document") {
         const r = params.response;
@@ -1487,15 +1652,16 @@ function readResponses(retailer, win) {
         );
       }
       // Only an answer. A refusal's body is not an order, and is the retailer's to show.
-      if (kind && params.response.status === 200) wanted.set(params.requestId, kind);
+      if (kind && params.response.status === 200) wanted.set(params.requestId, { kind, html: retailer.saves === "document" && isDocument });
       // A sync waiting on this request is told the retailer refused it, so it stops there.
       else if (kind && params.response.status >= 400) answerAwaited(win, kind, { payload: null, status: params.response.status });
       return;
     }
     if (method !== "Network.loadingFinished") return;
-    const kind = wanted.get(params.requestId);
-    if (!kind) return;
+    const want = wanted.get(params.requestId);
+    if (!want) return;
     wanted.delete(params.requestId);
+    const { kind } = want;
 
     void dbg
       .sendCommand("Network.getResponseBody", { requestId: params.requestId })
@@ -1503,11 +1669,13 @@ function readResponses(retailer, win) {
         if (!store || win.isDestroyed()) return;
         const raw = base64Encoded ? Buffer.from(body, "base64").toString("utf8") : body;
         if (logPages) console.log(`page: read ${kind}, ${raw.length} chars`);
-        const payload = retailer.saves === "document" ? stripHtml(raw) : raw;
+        const payload = want.html ? stripHtml(raw) : raw;
         // A sync that pressed the page's Next control reads the next orders from this.
         answerAwaited(win, kind, { payload: payload || null, status: null });
         if (!payload) return;
         if (retailer.isChallengePayload?.(payload)) {
+          checking.add(retailer.code);
+          refreshStrips();
           win.setTitle(`${retailer.name} is checking this browser`);
           tell(retailer.code, `${retailer.name} is checking this browser. Complete its check in the window, then stop for today.`);
           return;
@@ -1524,6 +1692,7 @@ function readResponses(retailer, win) {
         }
         const { added, kept } = keep(retailer, kind, payload);
         if (!kept) return;
+        noteListed(retailer, kind, payload);
         win.setTitle(windowTitle(retailer, win.webContents.getURL()));
         tell(retailer.code, added ? "Saved this page." : "This page was already saved.");
       })
@@ -1540,7 +1709,7 @@ function readResponses(retailer, win) {
 /**
  * Reads the page the member just loaded, if it is one worth saving.
  * @param {import("../lib/retailers.mjs").Retailer} retailer
- * @param {BrowserWindow} win
+ * @param {RetailerWindow} win
  */
 async function readPage(retailer, win) {
   const url = win.webContents.getURL();
@@ -1548,8 +1717,11 @@ async function readPage(retailer, win) {
   if (retailer.isChallenge(url, { anyHost: Boolean(retailerFixture) })) {
     win.setTitle(`${retailer.name} is checking this browser`);
     tell(retailer.code, `${retailer.name} is checking this browser. Complete its check in the window, then stop for today.`);
+    checking.add(retailer.code);
+    refreshStrips();
     return;
   }
+  if (checking.delete(retailer.code)) refreshStrips();
 
   // The page's HTML was read as it arrived, by readResponses. Nothing more to do once it has loaded.
   if (retailer.saves === "document") return;
@@ -1580,6 +1752,7 @@ async function readPage(retailer, win) {
 
   const { added, kept } = keep(retailer, kind, payload);
   if (!kept) return;
+  noteListed(retailer, kind, payload);
   win.setTitle(windowTitle(retailer, win.webContents.getURL()));
   tell(retailer.code, added ? "Saved this page." : "This page was already saved.");
 
