@@ -61,6 +61,7 @@ const walmartOrder = fc.oneof(
     {
       id: fc.oneof(anything, fc.string(), fc.stringMatching(/^\d{6,30}$/)),
       isInStore: fc.oneof(anything, fc.boolean()),
+      type: fc.oneof(anything, fc.constantFrom("IN_STORE", "GLASS", "in_store", "IN_STORE ")),
       version: anything,
       itemCount: anything,
       orderDate: fc.oneof(anything, fc.constant("2026-10-03T10:00:00.000-0500")),
@@ -267,6 +268,18 @@ test("Walmart: an order page is only ever the order's when the order has its ite
       const order = JSON.parse(payload)?.props?.pageProps?.initialData?.data?.order;
       assert.equal(order.id, id);
       assert.ok(Object.keys(order).some((k) => /^groups(_\d+)?$/.test(k) && Array.isArray(order[k]) && order[k].length > 0));
+    }),
+  );
+});
+
+// Either marking makes an order in-store, and nothing else does.
+test("Walmart: an order opens as an in-store purchase exactly when isInStore is true or its type is IN_STORE", () => {
+  fc.assert(
+    fc.property(walmartOrder, (o) => {
+      const [listed] = walmart.listedOrders?.(JSON.stringify({ data: { purchaseHistory: { orders: [o] } } })) ?? [];
+      if (!listed) return;
+      const marked = /** @type {any} */ (o).isInStore === true || /** @type {any} */ (o).type === "IN_STORE";
+      assert.equal(listed.url.endsWith("storePurchase=true"), marked, listed.url);
     }),
   );
 });

@@ -205,8 +205,8 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   Two order pages in a row that are not the order also end it, and say so. A page with no order on
   it (Walmart's header and nothing else, or its "Sorry" page) is not the order: the order is not
   counted as read, and stays on the to-do list.
-- **An in-store Walmart purchase opens at its own address.** Purchase history marks one
-  `isInStore`, and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
+- **An in-store Walmart purchase opens at its own address.** An order is taken to be one
+  when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE`, and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
   address from the list, with the order number digits only and the group id digits or hex only, as
   it does every address it opens.
 - **A sign-in page stops the schedule on that computer.** A run that meets the retailer's sign-in
