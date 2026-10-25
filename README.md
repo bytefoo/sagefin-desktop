@@ -158,7 +158,8 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   list shows is skipped, and the strip says how many were.
 - **Setting it up again**, in the retailers window: *go further back* is setup again, skipping what
   was read; *change how far back* takes the to-do list's orders older than a date off it, so they are
-  never opened; *start over* forgets the to-do list and every order and charge read here, and opens
+  never opened (its date box starts at how far back the history reads now: the last day given, or
+  the oldest date setup reached, which the bridge also reports as `readsBackTo`); *start over* forgets the to-do list and every order and charge read here, and opens
   setup. None of them removes anything from SageFin: an order already there is removed only there.
 
 ## Syncing a retailer

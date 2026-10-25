@@ -20,6 +20,13 @@ const longDate = (day) => {
   return `${MONTHS[m - 1]} ${d}, ${y}`;
 };
 
+/** Today on this computer, YYYY-MM-DD: the latest day "Change how far back" takes. */
+const today = () => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+};
+
 /** The history line: how far setup got, and what is still to read. */
 function describeHistory(history) {
   if (history.settingUp) return "Setting up its history now, in its window.";
@@ -71,15 +78,30 @@ function historyActions(retailer) {
     void window.desktop.setUpHistory(retailer.code);
   }));
 
-  // Change how far back: orders on the to-do list older than the date are not read.
+  // Change how far back: orders on the to-do list older than the date are not read. The box starts
+  // at how far back the history reads now, so the member only moves it later.
+  const howFar = document.createElement("div");
+  howFar.className = "how-far-back";
   const date = document.createElement("input");
   date.type = "date";
-  date.setAttribute("aria-label", `Read ${retailer.name} orders back to`);
-  box.append(date, button("Change how far back", "btn-secondary", () => {
+  date.id = `history-back-to-${retailer.code}`;
+  date.max = today();
+  date.value = history.readsBackTo ?? history.reachedDate ?? "";
+  const label = document.createElement("label");
+  label.htmlFor = date.id;
+  label.className = "fine";
+  label.textContent = `Read ${retailer.name} orders back to`;
+  howFar.append(label, date, button("Change how far back", "btn-secondary", () => {
     if (!date.value) return;
     resetOpen.delete(retailer.code);
     void window.desktop.changeHowFarBack(retailer.code, date.value);
   }));
+  if (!date.value) {
+    const hint = document.createElement("p");
+    hint.className = "fine how-far-back-hint";
+    hint.textContent = "How far back it reads is not known yet. Pick the oldest day to read.";
+    howFar.append(hint);
+  }
 
   // Start over: everything read here is forgotten and setup opens. SageFin keeps what it has.
   box.append(button("Start over", "btn-secondary", () => {
@@ -94,6 +116,7 @@ function historyActions(retailer) {
     resetOpen.delete(retailer.code);
     void render();
   }));
+  box.append(howFar);
   return box;
 }
 
@@ -124,7 +147,7 @@ async function render() {
         const history = document.createElement("div");
         history.className = "retailer-detail";
         history.textContent = describeHistory(retailer.history);
-        label.append(history, historyActions(retailer));
+        label.append(history);
       }
 
       const open = document.createElement("button");
@@ -134,6 +157,8 @@ async function render() {
       open.addEventListener("click", () => window.desktop.open(retailer.code));
 
       item.append(avatar, label, open);
+      // Under the row, the width of the window: a narrow window wraps the buttons, never cuts them.
+      if (retailer.syncable && retailer.history) item.append(historyActions(retailer));
       return item;
     }),
   );

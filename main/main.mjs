@@ -18,7 +18,7 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
-import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, settledListing, startOver, stripText } from "../lib/history.mjs";
+import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
 import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
@@ -1284,13 +1284,15 @@ function syncStatus(code) {
     accountName: retailerByCode(code)?.memberNamesAccount ? (accountNames?.get(site.key, code) ?? null) : null,
     syncing: syncing.has(code),
     syncProgress: syncing.get(code) ?? null,
-    // The member's setup of the history, and the to-do list it left: counts and a date, nothing
+    // The member's setup of the history, and the to-do list it left: counts and dates, nothing
     // more. `toRead` is how many orders' own pages are still to be read.
     history: state
       ? {
           setup: state.setup.status,
           settingUp: settingUp.has(code),
           reachedDate: state.setup.reachedDate,
+          // How far back it reads now: a date only, for the date box to start at.
+          readsBackTo: readsBackTo(state.setup),
           orders: state.setup.listedIds.length,
           toRead: state.queue.length,
         }
