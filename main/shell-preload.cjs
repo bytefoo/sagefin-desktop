@@ -36,6 +36,11 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     // Opens a retailer's history page for the member to scroll back through, with the app's own
     // strip above it saying how far back they have got.
     setUpHistory: (code) => ipcRenderer.invoke("shell:set-up-history", code),
+    // Setting it up again, as the retailers window offers: orders on the to-do list older than a
+    // day (YYYY-MM-DD) are not read, or everything read here is forgotten and setup opens. Only
+    // straight after a press on the page; the main process checks the code and the date.
+    changeHowFarBack: (code, from) => (pressed() ? ipcRenderer.invoke("shell:change-how-far-back", code, from) : Promise.resolve(null)),
+    startHistoryOver: (code) => (pressed() ? ipcRenderer.invoke("shell:start-history-over", code) : Promise.resolve(false)),
     // Where the household's bank history starts, as the signed-in page read it ({ start, locked }),
     // for that strip. A date, or that the household is locked; nothing else is taken.
     setBankHistory: (value) => ipcRenderer.invoke("shell:bank-history", value),

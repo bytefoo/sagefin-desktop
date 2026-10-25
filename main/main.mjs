@@ -18,7 +18,7 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
-import { LIST_KINDS, dropOlderThan, dropRead, enqueue, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, settledListing, startOver, stripText } from "../lib/history.mjs";
+import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { adoptRead, orderKey, ordersToAskAbout, readKeys, shareRead } from "../lib/read-orders.mjs";
 import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
@@ -216,7 +216,7 @@ async function start() {
   // Setting up a retailer's history, and the two ways of setting it up again.
   ipcMain.handle("desktop:set-up-history", (event, code) => fromHome(event) && typeof code === "string" && setUpHistory(code));
   ipcMain.handle("desktop:change-how-far-back", (event, code, from) =>
-    fromHome(event) && typeof code === "string" && typeof from === "string" ? changeHowFarBack(code, from) : null,
+    fromHome(event) && typeof code === "string" ? changeHowFarBack(code, from) : null,
   );
   ipcMain.handle("desktop:start-over", (event, code) => fromHome(event) && typeof code === "string" && startHistoryOver(code));
   // The strip above a retailer's page: what it says, and its Done button.
@@ -315,6 +315,10 @@ async function start() {
       },
       // The member asked, from the Retail sync page, to set up this retailer's history.
       setUpHistory: (code) => setUpHistory(code),
+      // The two other ways of setting it up again, from the same page, as the retailers window has
+      // them. The page sends a retailer's code and a date; both are checked here.
+      changeHowFarBack: (code, from) => changeHowFarBack(code, from),
+      startOver: (code) => startHistoryOver(code),
       // Where the household's bank history starts, as the signed-in page read it: a date, or that
       // the household is locked and SageFin cannot say. Only the strip uses it.
       bankHistory(value) {
@@ -1390,12 +1394,13 @@ function finishSetup(code) {
 /**
  * "Change how far back": the to-do list's orders older than `from` are dropped and never opened.
  * @param {string} code
- * @param {string} from  YYYY-MM-DD.
+ * @param {unknown} given  YYYY-MM-DD, from the retailers window or the web page: checked here.
  * @returns {number | null}  How many were dropped, or null when it could not be done now.
  */
-function changeHowFarBack(code, from) {
+function changeHowFarBack(code, given) {
   const retailer = retailerByCode(code);
-  if (!retailer?.syncs || !syncStates || syncing.has(code) || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return null;
+  const from = howFarBackDate(given);
+  if (!retailer?.syncs || !syncStates || syncing.has(code) || !from) return null;
   const state = syncStates.get(site.key, code);
   const dropped = dropOlderThan(state, from);
   syncStates.set(site.key, code, state);

@@ -82,7 +82,10 @@ are the site's own, and a web deploy changes the app's interface too.
   `setUpHistory(code)` opens a retailer's history for the member to set up
   ([below](#setting-up-your-history)), and `setBankHistory({ start, locked })` is the page handing over
   where the household's bank history starts, which it read with the member's own sign-in, for the
-  strip that setup shows. The app never asks SageFin for it.
+  strip that setup shows. The app never asks SageFin for it. `changeHowFarBack(code, day)` and
+  `startHistoryOver(code)` are the retailers window's other two ways of setting a history up again
+  (the `history-again` capability), answered only straight after a press on the page; the app
+  checks the retailer and that the day is a real one no later than today.
   It exists only on a SageFin origin, and the main process checks the caller's frame and origin
   again before answering. Settings → Retail sync in the web app is where it shows. The same calls
   also answer under their older names (`stores()`, `openStore`, `syncStore`, `onStoresChanged`),
@@ -114,8 +117,10 @@ leaves the app running (`lib/background.mjs`). The rules:
   tray, to the web page and in its check-in; package.json's own version is a placeholder that
   matches no release. The window's title names the site whenever it is not production.
 
-On Windows and Linux the menu bar is hidden until Alt is pressed, so the window is only SageFin;
-everything in the menu is also on the tray icon. macOS keeps its menu at the top of the screen.
+On Windows and Linux the main window's menu bar is always shown, at the top of the window, so its
+Retailers menu is somewhere a member can see; everything in it is also on the tray icon. macOS
+keeps its menu at the top of the screen. Pop-ups, the unlock window and a retailer's window still
+hide theirs until Alt is pressed.
 - **Starting with the computer is off by default**, and offered only in a packaged app on macOS
   and Windows (a development run would register Electron itself). Not exercised yet: nothing is
   packaged build has been run with it. On macOS 13 and later the system does not say that a start was a login start,
