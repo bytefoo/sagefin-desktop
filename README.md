@@ -224,16 +224,20 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   it does every address it opens (`orderUrl` in `lib/retailers.mjs`). It builds it when the run
   opens the order, never from an address kept on the to-do list, so a version that built one wrongly
   does not leave every later version opening it.
-- **An order kept by an older version waits to be listed again when its address is in doubt.**
-  Up to v0.1.80 the to-do list kept each order's address, and v0.1.76 kept an in-store purchase's
-  as an online order's, which Walmart cannot fill. Reading such a list, the app takes from each
-  address only what it says for certain (`legacyFacts`): one ending `storePurchase=true` is an
-  in-store purchase, and one with a number shorter than any in-store purchase's (15 digits, against
-  20 or 21) is an online order, which every version addressed the same way. A number of 20 digits
-  or more with no `storePurchase` is not guessed at: no run opens it, it is not counted as set
-  aside, and the card says how many wait. A run that lists it again (an order still changing) or the member
-  setting up the history again past it gives it its facts, and, with a new address, no misses
-  counted against the old one, so one set aside for that address comes back. Choosing Purchase
+- **An order kept by an older version is addressed from what it kept.** Up to v0.1.80 the to-do
+  list kept each order's address, and v0.1.76 kept an in-store purchase's as an online order's,
+  which Walmart cannot fill. Reading such a list, the app works out each order's facts from its
+  address and number (`legacyFacts`): one ending `storePurchase=true` is an in-store purchase; one
+  with a number shorter than any in-store purchase's is an online order, which every version
+  addressed the same way; and a number of 20 digits or more with no `storePurchase` is taken to be
+  an in-store purchase with group id `0`, because on 2026-10-26 every in-store purchase in Purchase
+  history had a 20- or 21-digit number and group id `0`, and every online order 15 digits. Such an
+  order opens at `?groupId=0&storePurchase=true` on the next run, with the misses counted against
+  its old address dropped, so one set aside for that address comes back. If that page is empty too,
+  three runs set it aside again like any other, and the list showing it later with its real facts
+  (a run that reaches it, or setting up the history again past it) gives it a new address and no
+  misses. Only an entry that still cannot be addressed (its kept address is not the order's own)
+  waits for the list, is not opened and is not counted as set aside; the card says how many wait. Choosing Purchase
   history's own **In-store** filter while setting up (its address is `/orders?filterIds=in-store`)
   should reach them sooner: it is a Purchase history page, saved and listed like the rest, though
   not yet tried with the app. The app never loads that page itself.
