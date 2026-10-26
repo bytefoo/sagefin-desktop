@@ -44,6 +44,14 @@ function describeHistory(history) {
         : `${history.setAside} set aside: their pages showed no order, so their items were not read. Setting up history again past them tries them again.`,
     );
   }
+  // Kept by an older version without what their address depends on: the list has to show them again.
+  if (history.waiting > 0) {
+    parts.push(
+      history.waiting === 1
+        ? "1 waiting to be listed again before its page can be opened. Setting up history again past it lists it."
+        : `${history.waiting} waiting to be listed again before their pages can be opened. Setting up history again past them lists them.`,
+    );
+  }
   return parts.join(" ");
 }
 

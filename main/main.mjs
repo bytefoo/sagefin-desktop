@@ -27,7 +27,7 @@ import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
 import { UPDATE_SENTENCE, belowMinimum, runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
-import { noteMissed, setAsideCount, stillToOpen } from "../lib/history.mjs";
+import { awaitRelist, noteMissed, setAsideCount, stillToOpen, waitingCount } from "../lib/history.mjs";
 import { startPrivateMode } from "./private-mode.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -998,7 +998,7 @@ async function runSync(retailer, { visible, by }) {
     /**
      * Asks SageFin which of these orders another of the member's computers has read, and
      * remembers those as read here (lib/read-orders.mjs). With no answer, nothing changes.
-     * @param {import("../lib/retailers.mjs").ListedOrder[]} orders
+     * @param {{ id: string, fingerprint: string }[]} orders
      */
     const learnWhatWasRead = async (orders) => {
       // A stand-in page is not an order.
@@ -1119,11 +1119,20 @@ async function runSync(retailer, { visible, by }) {
     let read = 0;
     let missed = 0;
     for (const [index, order] of todo.entries()) {
+      // Built now, from what the list said of the order, by the code that builds the list's own
+      // addresses: never an address the to-do list kept (lib/history.mjs). None means what is kept
+      // does not say where its page is, and it waits for the list to show it again.
+      const url = retailer.orderUrl?.(order) ?? null;
+      if (!url) {
+        awaitRelist(state, order);
+        states.set(siteKey, retailer.code, state);
+        continue;
+      }
       progress(`Reading order ${index + 1} of ${todo.length}…`);
       await pause(pauseBetweenOrders);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
 
-      const loaded = await load(win, retailerFixture ? onFixture(order.url, retailerFixture) : order.url);
+      const loaded = await load(win, retailerFixture ? onFixture(url, retailerFixture) : url);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const data = loaded ? await pageData(win, retailer) : null;
       const stopped = turnedAway(data);
@@ -1165,12 +1174,14 @@ async function runSync(retailer, { visible, by }) {
 
     const left = stillToOpen(state.queue).length;
     const aside = setAsideCount(state.queue);
+    const waiting = waitingCount(state.queue);
     finish(
       (todo.length === 0
         ? "Nothing new to read."
         : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`) +
         (left > 0 ? ` ${left} still to read.` : "") +
-        (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : ""),
+        (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : "") +
+        (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : ""),
       { finished: true, orders: read },
     );
   } catch (error) {
@@ -1329,7 +1340,8 @@ function syncStatus(code) {
     syncProgress: syncing.get(code) ?? null,
     // The member's setup of the history, and the to-do list it left: counts and dates, nothing
     // more. `toRead` is how many orders' own pages a run will still open; `setAside`, how many it
-    // will not, because their pages showed no order on MAX_MISSES runs (lib/history.mjs).
+    // will not, because their pages showed no order on MAX_MISSES runs (lib/history.mjs); `waiting`,
+    // how many it will not until the list shows them again.
     history: state
       ? {
           setup: state.setup.status,
@@ -1340,6 +1352,9 @@ function syncStatus(code) {
           orders: state.setup.listedIds.length,
           toRead: stillToOpen(state.queue).length,
           setAside: setAsideCount(state.queue),
+          // How many no run opens until the list shows them again: kept by an older version without
+          // what their address depends on (`relist`, lib/history.mjs).
+          waiting: waitingCount(state.queue),
         }
       : null,
     lastSyncAt: state?.lastRunAt ?? null,

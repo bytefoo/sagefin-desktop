@@ -173,7 +173,7 @@ const ORDER_URL = {
   // Online: the long hex group id, or none. In-store: any digits-or-hex group id, or none, then
   // `storePurchase=true`.
   walmart: /^https:\/\/www\.walmart\.com\/orders\/\d{6,30}(\?groupId=[0-9a-f]{16,64}|\?(groupId=[0-9a-f]{1,64}&)?storePurchase=true)?$/i,
-  amazon: /^https:\/\/www\.amazon\.com\/gp\/your-account\/order-details\?orderID=\d{3}-\d{7}-\d{7}$/,
+  amazon: /^https:\/\/www\.amazon\.com\/gp\/your-account\/order-details\?orderID=(\d{3}|D\d{2})-\d{7}-\d{7}$/,
 };
 
 for (const retailer of RETAILERS) {
@@ -229,10 +229,43 @@ for (const retailer of RETAILERS) {
           assert.equal(retailer.captureKind(order.url), ORDER_PAGE[retailer.code], order.url);
           assert.match(order.url, ORDER_URL[retailer.code]);
           assert.ok(order.url.includes(order.id));
+          // The to-do list keeps the facts and a run rebuilds the address: it is the list's own.
+          const kept = JSON.parse(JSON.stringify({ id: order.id, facts: order.facts }));
+          assert.equal(retailer.orderUrl?.(kept), order.url);
           assert.match(order.fingerprint, /^[0-9a-f]{64}$/);
           assert.ok(order.date === null || /^\d{4}-\d{2}-\d{2}$/.test(order.date), String(order.date));
         }
         assert.equal(new Set(listed.map((o) => o.url)).size, new Set(listed.map((o) => o.id)).size);
+      }),
+    );
+  });
+
+  // What a run opens from the to-do list is built from what was kept on disk, which is not taken
+  // on trust: whatever is kept, the address is the retailer's own order page, or there is none.
+  // So is an address an older version kept, read for its facts.
+  test(`${retailer.name}: an order kept on the to-do list opens at the retailer's own order page, or not at all`, () => {
+    const facts = fc.oneof(
+      anything,
+      fc.record(
+        { inStore: fc.oneof(anything, fc.boolean()), groupId: fc.oneof(anything, fc.constant(null), fc.string(), fc.constant("0"), fc.stringMatching(/^[0-9a-f]{1,64}$/)) },
+        { requiredKeys: [] },
+      ),
+    );
+    const id = fc.oneof(fc.string(), fc.stringMatching(/^\d{6,30}$/), fc.stringMatching(/^(\d{3}|D\d{2})-\d{7}-\d{7}$/));
+    const oldUrl = fc.oneof(
+      fc.string(),
+      address,
+      fc.tuple(fc.stringMatching(/^\d{6,30}$/), fc.string()).map(([i, g]) => `https://www.walmart.com/orders/${i}?groupId=${g}&storePurchase=true`),
+    );
+    fc.assert(
+      fc.property(id, facts, oldUrl, (orderId, kept, url) => {
+        for (const f of [kept, retailer.legacyFacts?.(orderId, url) ?? undefined]) {
+          const built = retailer.orderUrl?.({ id: orderId, facts: /** @type {any} */ (f) }) ?? null;
+          if (built === null) continue;
+          assert.match(built, ORDER_URL[retailer.code]);
+          assert.equal(retailer.captureKind(built), ORDER_PAGE[retailer.code], built);
+          assert.ok(built.includes(orderId));
+        }
       }),
     );
   });
