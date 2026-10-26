@@ -45,10 +45,12 @@ from this source, and you can check the file you downloaded against the SHA-256 
 
 The app opens SageFin, where you need an account.
 
-**Updates.** On Windows and Linux the app updates itself: it downloads a new version in the
-background and installs it the next time it quits, or sooner if you choose Restart to Update from
-the tray icon. On macOS it does not yet: the builds are now signed, which macOS requires, but the
-app's updater is still off there. Download the new build and install it over the old one.
+**Updates.** The app updates itself: it downloads a new version in the background and installs it
+the next time it quits, or sooner if you choose Restart to Update from the tray icon (the menu bar
+icon on a Mac). On macOS that starts with the first signed release that has it turned on; a copy
+from an earlier release, signed or not, has its updater off, so download the newest build once and
+drag it over the old one in Applications. From then on it updates itself, as long as it runs from
+Applications rather than from the disk image.
 
 ## Privacy and terms
 
@@ -611,12 +613,33 @@ node native/windows/hello-check.mjs   # three Windows Hello prompts, each to app
 ## Updating itself
 
 The update feed is this repository's latest published release: the release workflow attaches a
-small manifest per system (`latest.yml`, `latest-linux.yml`) naming the version, the installer and
-its SHA-512, which the app checks the download against. The app looks once an hour while it runs;
+small manifest per system (`latest.yml`, `latest-linux.yml`, `latest-mac.yml`) naming the version,
+the installer and its SHA-512, which the app checks the download against. The app looks once an hour while it runs;
 Check for Updates, on the tray icon and in the Retailers menu, looks now, and says what it found. An update is never installed
 during a sync; the tray says it is waiting. Windows and Linux builds are not code-signed, so there is
-no signature to check beyond that hash, fetched over HTTPS from GitHub, and macOS does not update
-itself yet.
+no signature to check beyond that hash, fetched over HTTPS from GitHub.
+
+On macOS the download is the release's `.zip`, and macOS's own updater (Squirrel.Mac, which
+`electron-updater` hands it to) installs it only if the new app, every program inside it included,
+is signed to satisfy the running app's *designated requirement*: the bundle id `app.sagefin.desktop`,
+a Developer ID certificate issued by Apple, and SageFin's team, `J66FLD86SU`. That check cannot be
+turned off, so an update signed by anyone else, or altered after signing, is refused, whatever its
+hash. The app turns its updater on only when its own requirement is that one, read at start with
+the system's `codesign` (nothing leaves the computer): an ad-hoc signed copy's requirement is its
+own code hash, which no other build can meet, so it would download every update and install none.
+The release build checks the same of the zip it publishes, before uploading it
+(`scripts/mac-build.sh`).
+
+The keys a Mac holds for a private household come through an update unchanged. The Secure
+Enclave's keys are bound to the Mac, not the app, and what the keychain holds is their wrapped
+form, in the data protection keychain under the access group `J66FLD86SU.app.sagefin.desktop`.
+An update replaces the whole app, the key helper in `Contents/Helpers` with it, by one built and
+signed the same way: the same team, the same App ID and access group in its entitlements and
+provisioning profile, so the new helper reads the items the old one stored. The app's other files,
+in `~/Library/Application Support`, are not part of the app and are not touched.
+
+The Mac build is for Apple silicon only, as the key helper is, and there is no Intel build to
+update to.
 
 ## How it looks
 
