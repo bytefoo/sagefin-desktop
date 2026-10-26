@@ -5,7 +5,8 @@
 # with the hardened runtime and the entitlements in build/, embed the provisioning profile,
 # notarize the app and staple it, and sign the disk image. The disk image is then notarized and
 # stapled here, and its block map and its entry in latest-mac.yml written again, because stapling
-# changed the file electron-builder had hashed.
+# changed the file electron-builder had hashed. Last, the app inside the zip is checked the way
+# Squirrel.Mac will check it when a running copy updates itself from it.
 #
 # Otherwise: ad-hoc signed as before, with no key helper, so the app holds no key on that Mac.
 #
@@ -53,3 +54,29 @@ if [ "$status" != "Accepted" ]; then
 fi
 xcrun stapler staple "$dmg"
 node scripts/restamp-update-info.mjs "$dmg" dist/latest-mac.yml
+
+# The zip is what a running copy updates itself from (lib/updates.mjs). Squirrel.Mac unpacks it and
+# installs the app inside only if that app, nested code and all, satisfies the running app's
+# designated requirement. Check the zip's own copy the same way, against the requirement of the app
+# it was built from, and that the requirement is one the next release can satisfy too: SageFin's
+# team and bundle id, never a code hash. The key helper must come through the zip still signed.
+zips=(dist/SageFin-Desktop-*.zip)
+apps=(dist/mac*/"SageFin Desktop.app")
+if [ "${#zips[@]}" -ne 1 ] || [ "${#apps[@]}" -ne 1 ]; then
+  echo "::error::expected one zip and one app in dist/, found ${#zips[@]} and ${#apps[@]}"
+  exit 1
+fi
+requirement=$(codesign -d -r- "${apps[0]}" 2>&1)
+REQUIREMENT="$requirement" node --input-type=module -e '
+  import { macRequirementUpdatable } from "./lib/updates.mjs";
+  if (!macRequirementUpdatable(process.env.REQUIREMENT)) {
+    console.error("::error::the app is not signed so that a later release can update it");
+    process.exit(1);
+  }'
+designated=$(printf '%s\n' "$requirement" | sed -n 's/^designated => //p')
+unpacked=$(mktemp -d)
+ditto -x -k "${zips[0]}" "$unpacked"
+codesign --verify --deep --strict -R="=$designated" "$unpacked/SageFin Desktop.app"
+codesign --verify --strict "$unpacked/SageFin Desktop.app/Contents/Helpers/SageFinKeys.app"
+rm -rf "$unpacked"
+echo "$(basename "${zips[0]}"): the app inside satisfies $designated"

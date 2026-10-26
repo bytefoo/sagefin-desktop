@@ -30,7 +30,7 @@ import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
 import { awaitRelist, noteMissed, setAsideCount, stillToOpen, waitingCount } from "../lib/history.mjs";
 import { startPrivateMode } from "./private-mode.mjs";
 import { openShell } from "./shell.mjs";
-import { startUpdates } from "./updates.mjs";
+import { readMacRequirement, startUpdates } from "./updates.mjs";
 
 const here = import.meta.dirname;
 const HOME = pathToFileURL(path.join(here, "..", "renderer", "index.html")).href;
@@ -248,6 +248,7 @@ async function start() {
   preferences = createPreferences({ dir: path.join(dir, "..") });
   // Before the tray: its menu asks whether this copy can update itself, and is built once here.
   updates = startUpdates({
+    macRequirement: await readMacRequirement(),
     syncing: () => syncing.size,
     onChanged: refreshUpdateMenus,
     beforeRestart: () => {
