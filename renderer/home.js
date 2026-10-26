@@ -37,6 +37,13 @@ function describeHistory(history) {
     parts.push(`History ${history.setup === "done" ? "set up" : "partly set up"}${back}, ${history.orders} order${history.orders === 1 ? "" : "s"}.`);
   }
   if (history.toRead > 0) parts.push(`${history.toRead} order${history.toRead === 1 ? "" : "s"} still to read, twenty a sync.`);
+  if (history.setAside > 0) {
+    parts.push(
+      history.setAside === 1
+        ? "1 set aside: its page showed no order, so its items were not read. Setting up history again past it tries it again."
+        : `${history.setAside} set aside: their pages showed no order, so their items were not read. Setting up history again past them tries them again.`,
+    );
+  }
   return parts.join(" ");
 }
 

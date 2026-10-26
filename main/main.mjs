@@ -27,6 +27,7 @@ import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
 import { UPDATE_SENTENCE, belowMinimum, runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
+import { noteMissed, setAsideCount, stillToOpen } from "../lib/history.mjs";
 import { startPrivateMode } from "./private-mode.mjs";
 import { openShell } from "./shell.mjs";
 import { startUpdates } from "./updates.mjs";
@@ -1109,7 +1110,11 @@ async function runSync(retailer, { visible, by }) {
 
       // Not the order's page, or the page with no order on it (orderIdIn says none for both), so the
       // order stays on the to-do list for the next run. One may be a slow load; two in a row is the
-      // retailer saying no, or an address it cannot fill.
+      // retailer saying no, or an address it cannot fill. Each such page counts against its order,
+      // which the next run opens after the others, and which is set aside after MAX_MISSES runs
+      // (lib/history.mjs), so that it cannot end every run before the orders behind it are reached.
+      noteMissed(state, order);
+      states.set(siteKey, retailer.code, state);
       missed += 1;
       if (missed >= 2) {
         return finish(
@@ -1127,12 +1132,14 @@ async function runSync(retailer, { visible, by }) {
       void shareRead({ site: siteOrigin, secret: credential.secret, retailer: retailer.code, asked: [], read: readKeys(retailer.code, state.seen), fetch });
     }
 
-    const left = state.queue.length;
+    const left = stillToOpen(state.queue).length;
+    const aside = setAsideCount(state.queue);
     finish(
       (todo.length === 0
         ? "Nothing new to read."
         : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`) +
-        (left > 0 ? ` ${left} still to read.` : ""),
+        (left > 0 ? ` ${left} still to read.` : "") +
+        (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : ""),
       { finished: true, orders: read },
     );
   } catch (error) {
@@ -1290,7 +1297,8 @@ function syncStatus(code) {
     syncing: syncing.has(code),
     syncProgress: syncing.get(code) ?? null,
     // The member's setup of the history, and the to-do list it left: counts and dates, nothing
-    // more. `toRead` is how many orders' own pages are still to be read.
+    // more. `toRead` is how many orders' own pages a run will still open; `setAside`, how many it
+    // will not, because their pages showed no order on MAX_MISSES runs (lib/history.mjs).
     history: state
       ? {
           setup: state.setup.status,
@@ -1299,7 +1307,8 @@ function syncStatus(code) {
           // How far back it reads now: a date only, for the date box to start at.
           readsBackTo: readsBackTo(state.setup),
           orders: state.setup.listedIds.length,
-          toRead: state.queue.length,
+          toRead: stillToOpen(state.queue).length,
+          setAside: setAsideCount(state.queue),
         }
       : null,
     lastSyncAt: state?.lastRunAt ?? null,
@@ -1346,7 +1355,8 @@ function noteListed(retailer, kind, payload) {
   browsed.set(retailer.code, [...gathered.listed, ...gathered.page.filter((o) => !known.has(o.id))]);
 
   const state = syncStates.get(site.key, retailer.code);
-  const { alreadyRead } = enqueue(state, gathered.page);
+  // The member's own browsing past an order set aside, while setting up, gives it another chance.
+  const { alreadyRead } = enqueue(state, gathered.page, { retry: settingUp.has(retailer.code) });
   noteCharges(state, charges);
   if (settingUp.has(retailer.code)) noteSetup(state.setup, gathered.page, alreadyRead, charges.map((c) => c.date));
   syncStates.set(site.key, retailer.code, state);
