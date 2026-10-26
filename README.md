@@ -97,7 +97,8 @@ menu. A packaged app opens production. Each site has its own browser profile.
 
 The retailers window (Retailers → Retailers on This Computer) is the app's own page: what is saved here,
 a button to open each retailer, and each retailer's history: whether it is set up, how far back, how
-many orders are still to read, how many are set aside, and the ways to set it up again.
+many orders are still to read, how many are set aside, how many wait to be listed again (below), and
+the ways to set it up again.
 
 ## Running in the background
 
@@ -153,8 +154,10 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   it in the window and carry on. A run never does (below).
 - **Each order goes on a to-do list.** The charges and totals in the list reach SageFin at once,
   inside the saved list. What is left is each order's own page, for its items: the order's number,
-  where its page is and a fingerprint go on a to-do list kept on this computer, sealed like
-  everything else (`lib/history.mjs`, in the sync state). An order already read in the state the
+  what the list said that its page's address depends on (at Walmart, whether it was bought in a
+  store, and its group id) and a fingerprint go on a to-do list kept on this computer, sealed like
+  everything else (`lib/history.mjs`, in the sync state). The address itself is not kept: a run
+  builds it from those each time it opens the order. An order already read in the state the
   list shows is skipped, and the strip says how many were.
 - **Setting it up again**, in the retailers window: *go further back* is setup again, skipping what
   was read, and trying again any order it passes that was set aside (below); *change how far back* takes the to-do list's orders older than a date off it, so they are
@@ -215,9 +218,25 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   fingerprint, or a new address, as an in-store purchase's became), or when the member's own
   browsing passes it while setting up the history.
 - **An in-store Walmart purchase opens at its own address.** An order is taken to be one
-  when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE`, and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
-  address from the list, with the order number digits only and the group id digits or hex only, as
-  it does every address it opens.
+  when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE` (it does both,
+  and an online order neither), and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
+  address from what the list said, with the order number digits only and the group id digits or hex only, as
+  it does every address it opens (`orderUrl` in `lib/retailers.mjs`). It builds it when the run
+  opens the order, never from an address kept on the to-do list, so a version that built one wrongly
+  does not leave every later version opening it.
+- **An order kept by an older version waits to be listed again when its address is in doubt.**
+  Up to v0.1.80 the to-do list kept each order's address, and v0.1.76 kept an in-store purchase's
+  as an online order's, which Walmart cannot fill. Reading such a list, the app takes from each
+  address only what it says for certain (`legacyFacts`): one ending `storePurchase=true` is an
+  in-store purchase, and one with a number shorter than any in-store purchase's (15 digits, against
+  20 or 21) is an online order, which every version addressed the same way. A number of 20 digits
+  or more with no `storePurchase` is not guessed at: no run opens it, it is not counted as set
+  aside, and the card says how many wait. A run that lists it again (an order still changing) or the member
+  setting up the history again past it gives it its facts, and, with a new address, no misses
+  counted against the old one, so one set aside for that address comes back. Choosing Purchase
+  history's own **In-store** filter while setting up (its address is `/orders?filterIds=in-store`)
+  should reach them sooner: it is a Purchase history page, saved and listed like the rest, though
+  not yet tried with the app. The app never loads that page itself.
 - **A sign-in page stops the schedule on that computer.** A run that meets the retailer's sign-in
   page ends, shows the window, and is not repeated by the schedule: a run each hour that loads a
   sign-in page and leaves is a pattern a retailer could fairly read as a robot's. The next run is

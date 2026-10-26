@@ -7,7 +7,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import fc from "fast-check";
-import { MAX_MISSES, isSetAside, nextToOpen, readQueue } from "../lib/history.mjs";
+import { MAX_MISSES, isSetAside, nextToOpen, readQueue, setAsideCount, stillToOpen, waitingCount } from "../lib/history.mjs";
+import { walmart } from "../lib/retailers.mjs";
 
 const day = fc.integer({ min: 0, max: 3650 }).map((n) => new Date(Date.UTC(2020, 0, 1) + n * 86_400_000).toISOString().slice(0, 10));
 const stored = fc.array(
@@ -38,6 +39,43 @@ test("a run never opens an order set aside, never more than its limit, and tries
       const most = Math.max(0, ...next.map((q) => q.misses ?? 0));
       const opened = new Set(next);
       if (next.length === limit) assert.ok(!open.some((q) => !opened.has(q) && (q.misses ?? 0) < most));
+    }),
+  );
+});
+
+// What an older version kept, and what this one keeps, side by side: a run opens only orders the
+// retailer can address from what is kept, and every one of those it can address.
+const walmartStored = fc.array(
+  fc.record(
+    {
+      id: fc.oneof(fc.stringMatching(/^[0-9]{15}$/), fc.stringMatching(/^[0-9]{20,21}$/), fc.string()),
+      url: fc.oneof(
+        fc.string(),
+        fc.tuple(fc.stringMatching(/^[0-9]{15,21}$/), fc.constantFrom("", "?groupId=0", "?groupId=0&storePurchase=true", "?groupId=0123456789abcdef")).map(
+          ([id, q]) => `https://www.walmart.com/orders/${id}${q}`,
+        ),
+      ),
+      facts: fc.oneof(fc.anything(), fc.record({ inStore: fc.boolean(), groupId: fc.oneof(fc.constant(null), fc.constant("0"), fc.string()) })),
+      fingerprint: fc.string(),
+      date: fc.option(day),
+      misses: fc.integer({ min: 0, max: 5 }),
+      relist: fc.anything(),
+    },
+    { requiredKeys: ["id", "fingerprint"] },
+  ),
+  { maxLength: 40 },
+);
+
+test("Walmart: a run opens only orders it can build an address for, and waiting ones are not set aside", () => {
+  fc.assert(
+    fc.property(walmartStored, (raw) => {
+      const queue = readQueue(raw, walmart);
+      for (const q of queue) {
+        assert.equal(Boolean(q.relist), walmart.orderUrl?.(q) === null, JSON.stringify(q));
+        assert.ok(!("url" in q));
+      }
+      for (const q of nextToOpen(queue, 1000)) assert.notEqual(walmart.orderUrl?.(q), null);
+      assert.equal(stillToOpen(queue).length + setAsideCount(queue) + waitingCount(queue), queue.length);
     }),
   );
 });
