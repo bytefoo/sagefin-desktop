@@ -97,7 +97,7 @@ menu. A packaged app opens production. Each site has its own browser profile.
 
 The retailers window (Retailers → Retailers on This Computer) is the app's own page: what is saved here,
 a button to open each retailer, and each retailer's history: whether it is set up, how far back, how
-many orders are still to read, and the ways to set it up again.
+many orders are still to read, how many are set aside, and the ways to set it up again.
 
 ## Running in the background
 
@@ -157,7 +157,7 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   everything else (`lib/history.mjs`, in the sync state). An order already read in the state the
   list shows is skipped, and the strip says how many were.
 - **Setting it up again**, in the retailers window: *go further back* is setup again, skipping what
-  was read; *change how far back* takes the to-do list's orders older than a date off it, so they are
+  was read, and trying again any order it passes that was set aside (below); *change how far back* takes the to-do list's orders older than a date off it, so they are
   never opened (its date box starts at how far back the history reads now: the last day given, or
   the oldest date setup reached, which the bridge also reports as `readsBackTo`); *start over* forgets the to-do list and every order and charge read here, and opens
   setup. None of them removes anything from SageFin: an order already there is removed only there.
@@ -206,6 +206,14 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   Two order pages in a row that are not the order also end it, and say so. A page with no order on
   it (Walmart's header and nothing else, or its "Sorry" page) is not the order: the order is not
   counted as read, and stays on the to-do list.
+- **An order whose page never shows it is set aside, not opened forever.** Each run that finds no
+  order on an order's page counts it against that order, and the next run opens it after every
+  order that has not missed, so two such pages cannot end each run before it reaches the orders
+  behind them. After three runs it is set aside: no run opens it again, and the card says how many
+  are (`MAX_MISSES`, `nextToOpen` in `lib/history.mjs`). Its charges and total reached SageFin with
+  the list; only its items are not read. It is tried again when the list shows it changed (a new
+  fingerprint, or a new address, as an in-store purchase's became), or when the member's own
+  browsing passes it while setting up the history.
 - **An in-store Walmart purchase opens at its own address.** An order is taken to be one
   when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE`, and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
   address from the list, with the order number digits only and the group id digits or hex only, as
