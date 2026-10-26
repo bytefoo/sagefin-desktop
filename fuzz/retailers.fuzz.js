@@ -271,6 +271,22 @@ for (const retailer of RETAILERS) {
   });
 }
 
+// v0.1.76 kept every order's address in the online form. Read back, one with an in-store purchase's
+// number (20 digits or more) opens at the store address with group id "0", and one with an online
+// order's number at the address it had.
+test("Walmart: an address v0.1.76 kept opens as an in-store purchase exactly when the number is 20 digits or more", () => {
+  fc.assert(
+    fc.property(fc.stringMatching(/^\d{6,30}$/), fc.constantFrom("", "?groupId=0", "?groupId=0123456789abcdef"), (id, query) => {
+      const old = `https://www.walmart.com/orders/${id}${query}`;
+      const facts = walmart.legacyFacts?.(id, old) ?? null;
+      const built = facts ? walmart.orderUrl?.({ id, facts }) : null;
+      if (id.length >= 20) assert.equal(built, `https://www.walmart.com/orders/${id}?groupId=0&storePurchase=true`);
+      else if (query !== "?groupId=0") assert.equal(built, old);
+      else assert.equal(built, null);
+    }),
+  );
+});
+
 test("Amazon: the order a details page is placed under is a number the page itself carries", () => {
   fc.assert(
     fc.property(amazonPage, (payload) => {
