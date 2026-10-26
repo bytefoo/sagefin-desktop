@@ -76,7 +76,7 @@ REQUIREMENT="$requirement" node --input-type=module -e '
 designated=$(printf '%s\n' "$requirement" | sed -n 's/^designated => //p')
 unpacked=$(mktemp -d)
 ditto -x -k "${zips[0]}" "$unpacked"
-codesign --verify --deep --strict -R="=$designated" "$unpacked/SageFin Desktop.app"
+codesign --verify --deep --strict -R "=$designated" "$unpacked/SageFin Desktop.app"
 codesign --verify --strict "$unpacked/SageFin Desktop.app/Contents/Helpers/SageFinKeys.app"
 rm -rf "$unpacked"
 echo "$(basename "${zips[0]}"): the app inside satisfies $designated"
