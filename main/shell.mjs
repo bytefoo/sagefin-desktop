@@ -31,7 +31,7 @@ function openInBrowser(url) {
  *   Taking the upload-only token the signed-in page minted, and letting go of it.
  * @param {(site: import("../lib/site.mjs").Site) => void} options.onSite
  *   Called when a development run switches to another SageFin.
- * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, unlockHere: (householdId: unknown) => Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean>, pageLoaded: () => void }} options.privateMode
+ * @param {{ holdsKeyFor: (householdId: unknown) => boolean, canHoldKey: () => boolean, unlockHere: (householdId: unknown) => Promise<import("../lib/private-mode.mjs").PageUnlockOutcome>, showUnlock: () => Promise<boolean>, startAdding: () => Promise<boolean>, goPrivateHere: () => Promise<boolean>, addADevice: () => Promise<boolean>, pageLoaded: () => void }} options.privateMode
  *   What the page may ask of private mode (main/private-mode.mjs): one yes or no, to unlock this
  *   window, and to show the app's own windows. The page may ask; only the operating system's prompt
  *   approves, and the page hears only how it ended. `pageLoaded` is told each time the window's
@@ -83,7 +83,9 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
           // "history-setup": the page may open a retailer's history for the member to set up, and say
           // where the household's bank history starts, for the strip above it. "history-again": the
           // page may also change how far back a retailer's history goes, and start it over.
-          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", "unlock-here", "history-setup", "history-again", ...(privateMode.canHoldKey() ? ["add-this-computer"] : [])],
+          // "go-private-here" and "add-a-device": the page may ask the app to open its own Make This
+          // Household Private… or Add a Device… window, as the menu does; only that window goes on.
+          capabilities: ["retailers", "stores", "upload", "sync", "consent", "account-name", "private-unlock", "unlock-here", "history-setup", "history-again", ...(privateMode.canHoldKey() ? ["add-this-computer", "go-private-here", "add-a-device"] : [])],
         }
       : null,
   );
@@ -116,6 +118,8 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
   ipcMain.handle("shell:unlock-here", (event, householdId) => (fromSite(event) ? privateMode.unlockHere(householdId) : "not-now"));
   ipcMain.handle("shell:show-unlock", (event) => (fromSite(event) ? privateMode.showUnlock() : false));
   ipcMain.handle("shell:add-this-computer", (event) => (fromSite(event) ? privateMode.startAdding() : false));
+  ipcMain.handle("shell:go-private-here", (event) => (fromSite(event) ? privateMode.goPrivateHere() : false));
+  ipcMain.handle("shell:add-a-device", (event) => (fromSite(event) ? privateMode.addADevice() : false));
 
   /** @param {import("../lib/site.mjs").Site} s @param {{ show?: boolean }} [options] */
   function create(s, { show = true } = {}) {

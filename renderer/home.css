@@ -223,8 +223,40 @@ a.btn-primary {
 }
 
 /* A class that sets display beats the hidden attribute, so say it again: hidden means gone. */
-.qr[hidden] {
+.qr[hidden],
+.ask[hidden] {
   display: none;
+}
+
+/* The recovery codes shown once at going private, each to be written down as it reads. */
+.codes {
+  list-style: decimal inside;
+  font-family: ui-monospace, monospace;
+  font-size: var(--type-body);
+  letter-spacing: 0.04em;
+  user-select: text;
+}
+
+.codes li {
+  display: list-item;
+  padding: 10px 16px;
+}
+
+/* What the person types back: a recovery code, or the code under a new device's QR code. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ask input {
+  font: inherit;
+  font-family: ui-monospace, monospace;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--card-foreground);
 }
 
 /*

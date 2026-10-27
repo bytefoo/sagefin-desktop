@@ -90,7 +90,8 @@ except that a private household's `privateMode` may make it show one notificatio
 operating system's own prompt, started from the app's own unlock window or menu, or from the page's
 ask straight after a real press on it under `whyIgnorePageAsk`'s limits (the page may ask; only the
 prompt approves, and the page hears only how it ended), and only for this window's own unlock or
-Sync and lock (`lib/private-mode.mjs`); a sync only moves
+Sync and lock (`lib/private-mode.mjs`), or, for a member with no phone, for making the household
+private here and adding a device from the app's own window (`lib/first-holder.mjs`); a sync only moves
 between pages (loading them, and, where a list's later pages have no address, doing what a person
 does to see more: pressing Purchase history's own Next button at Walmart, scrolling the payments
 list to its end at Amazon); what a retailer's terms prohibit is off until the member chooses it, and a choice changes

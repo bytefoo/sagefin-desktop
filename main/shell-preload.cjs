@@ -63,6 +63,11 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     showUnlockWindow: () => (pressed() ? ipcRenderer.invoke("shell:show-unlock") : Promise.resolve(false)),
     // Starts adding this computer, as the menu's Use This Computer to Unlock SageFin does.
     addThisComputer: () => (pressed() ? ipcRenderer.invoke("shell:add-this-computer") : Promise.resolve(false)),
+    // Opens the app's own Make This Household Private… window, as its menu does: the codes, the
+    // typing back and the prompts are all in that window, never on the page.
+    goPrivateHere: () => (pressed() ? ipcRenderer.invoke("shell:go-private-here") : Promise.resolve(false)),
+    // Opens the app's own Add a Device… window, as its menu does.
+    addADevice: () => (pressed() ? ipcRenderer.invoke("shell:add-a-device") : Promise.resolve(false)),
 
     // The same four under the names they had while the app said "store" for a retailer. The web app
     // is always the newest and an installed app may not be, so the web app asks for the new names

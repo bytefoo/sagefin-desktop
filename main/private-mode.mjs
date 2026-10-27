@@ -18,6 +18,12 @@
 //   be added, and shows a QR code for your phone to scan, with the same code beside it to type,
 //   then the twelve characters both screens show. Your phone adds it; this computer then unlocks
 //   once to prove it.
+// - **A member with no phone** (lib/first-holder.mjs). From the menu, or the page's ask that only
+//   opens this window: Make This Household Private… makes the household's key in the security
+//   chip, shows the four recovery codes and has one typed back, then asks Touch ID or Windows Hello
+//   twice. Add a Device… takes the code a new phone or computer shows, has the person compare the
+//   twelve characters group by group, and asks once. SageFin then opens only in this window,
+//   unlocked here; a browser is never unlocked by this computer.
 // - **What the page may ask.** Whether this computer holds a key of the household it names (a yes
 //   or no); to unlock this window, which goes straight to the operating system's prompt and tells
 //   the page only how it ended; and to show the unlock window or start adding this computer, as the
@@ -54,6 +60,21 @@ import {
 import { openKeyStore } from "./key-store.mjs";
 import { qrRows } from "../lib/qr.mjs";
 import { presenceName } from "../lib/key-helper.mjs";
+import {
+  PROMISE,
+  addIdFromTyped,
+  approveAdding,
+  beginApproving,
+  beginGoingPrivate,
+  checkGroups,
+  codeTexts,
+  confirmRecoveryCode,
+  deviceKind,
+  finishGoingPrivate,
+  forgetGoingPrivate,
+  goPrivateEligibility,
+  lookAtApproving,
+} from "../lib/first-holder.mjs";
 
 const here = import.meta.dirname;
 const PAGE = pathToFileURL(path.join(here, "..", "renderer", "unlock.html")).href;
@@ -68,6 +89,19 @@ const REFUSED = /** @type {Record<string, string>} */ ({
   already_unlocked: "Your household is already unlocked somewhere.",
   key_protection_not_accepted: "This computer cannot hold a key. Unlock with your phone instead.",
   household_file_locked: "Unlock with your phone first, then try again.",
+  sign_in_again: "This change needs a recent sign-in. Sign out of SageFin in this window, sign in again, and start again. Nothing was changed.",
+  not_eligible: "This household can't be made private right now. SageFin's Settings → Security says why.",
+  procedure_in_progress: "A change to this household's keys is already under way. Try again in a few minutes.",
+  begin_again: "That didn't finish, and nothing was changed. Start again.",
+  proof_not_given: "That took too long, and nothing was changed. Start again.",
+  desktop_approves_only_itself: "Your phone adds devices to this household. On your phone: Settings → Security → Devices → Add a device.",
+  request_expired: "That code has run out. Start again on the new device.",
+  request_used: "That code has already been used. Start again on the new device.",
+  device_not_offered: "The new device hasn't finished asking yet. Wait a moment and try again.",
+  app_update_required: "Update SageFin on the new device, then start again there.",
+  check_not_finished: "The twelve characters weren't compared. Start again.",
+  approval_stale: "Your household's devices changed meanwhile. Start again on the new device.",
+  keys_do_not_match: "SageFin's answer didn't match what this computer made, so nothing was used. Start again.",
 });
 
 /**
@@ -76,8 +110,9 @@ const REFUSED = /** @type {Record<string, string>} */ ({
  * @param {() => BrowserWindow | null} options.window  SageFin's main window, if it exists.
  * @param {() => void} options.showWindow
  * @param {string} options.dir  Where this app keeps its own state.
+ * @param {() => void} [options.changed]  What this computer holds changed: the menu says it.
  */
-export function startPrivateMode({ site, window, showWindow, dir }) {
+export function startPrivateMode({ site, window, showWindow, dir, changed = () => {} }) {
   const file = path.join(dir, "private-mode.json");
   /** @type {{ holdings: Record<string, import("../lib/private-mode.mjs").Holding>, notices: Record<string, import("../lib/private-mode.mjs").NoticeState>, log: import("../lib/private-mode.mjs").LogEntry[] }} */
   let state = { holdings: {}, notices: {}, log: [] };
@@ -133,14 +168,18 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
 
   /** @type {BrowserWindow | null} */
   let overlay = null;
-  /** @type {(() => Promise<void>) | null} */
+  /** @type {((typed?: string) => Promise<void>) | null} */
   let onGo = null;
+  /** @type {(() => void) | null} The view's second button, where it has one. */
+  let onOther = null;
+  /** @type {import("../lib/first-holder.mjs").GoingPrivate | null} Its codes are forgotten when the window closes. */
+  let going = null;
   let prompting = false;
 
   /** @param {Record<string, unknown>} view */
   const show = (view) => {
-    // Taller while it shows the enrolment's QR code, so the code, the typed code and the words fit.
-    overlay?.setContentSize(460, view.qr ? 680 : 360);
+    // Taller while it shows the enrolment's QR code or the recovery codes, so they and the words fit.
+    overlay?.setContentSize(460, view.qr || view.codes ? 680 : view.ask || view.check ? 460 : 360);
     overlay?.webContents.send("unlock:view", view);
   };
 
@@ -163,6 +202,9 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     overlay.on("closed", () => {
       overlay = null;
       onGo = null;
+      onOther = null;
+      forgetGoingPrivate(going);
+      going = null;
     });
     void overlay.loadURL(PAGE);
     return overlay;
@@ -171,9 +213,12 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
   /** Only the unlock window's own page may press its buttons. @param {Electron.IpcMainInvokeEvent} event */
   const fromOverlay = (event) => Boolean(overlay && event.sender === overlay.webContents && event.senderFrame?.url === PAGE);
 
-  ipcMain.handle("unlock:go", async (event) => {
+  ipcMain.handle("unlock:go", async (event, typed) => {
     if (!fromOverlay(event) || !onGo) return;
-    await onGo();
+    await onGo(typeof typed === "string" ? typed.slice(0, 200) : undefined);
+  });
+  ipcMain.handle("unlock:other", (event) => {
+    if (fromOverlay(event)) onOther?.();
   });
   ipcMain.handle("unlock:cancel", (event) => {
     if (fromOverlay(event)) overlay?.close();
@@ -193,7 +238,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
   }
 
   /**
-   * @param {"unlock" | "sync" | "enrol"} what
+   * @param {import("../lib/private-mode.mjs").PromptKind} what
    * @param {import("../lib/private-mode.mjs").LogEntry["outcome"]} outcome
    * @param {string | null} code
    */
@@ -299,6 +344,7 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
           // Kept once the phone has added it; the first unlock is what proves it.
           state.holdings[site().key] = holdingOf(enrolment);
           save();
+          changed();
           record("enrol", "done", null);
           await offerUnlock("full");
         } else if (looked.show === "ended" || looked.show === "mismatch") {
@@ -308,6 +354,282 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
         }
       }, 2000);
     };
+    return true;
+  }
+
+  // ── A member with no phone: making the household private here ─────────────────────────────
+
+  /** Why a household may not go private, in the words SageFin's apps use. */
+  const NOT_YET = /** @type {Record<string, string>} */ ({
+    not_the_owner: "Only an owner of this household can make it private.",
+    more_than_one_member: "This household has more than one member. Making it private from this computer is for a household of one.",
+    open_invitation: "An invitation to join this household is waiting. Withdraw it first.",
+    finicity_connection: "A bank is connected through Mastercard. Disconnect it first.",
+    too_soon_after_going_private: "This household went private less than eight days ago. Try again later.",
+    procedure_in_progress: "A change to this household's keys is already under way. Try again in a few minutes.",
+    already_private: "This household is already private.",
+    wipe_begun: "This household is being deleted.",
+    no_file: "This household has no data yet. Add an account first.",
+  });
+
+  /** @param {string[] | undefined} reasons */
+  const notYet = (reasons) =>
+    [...new Set((reasons ?? []).map((r) => NOT_YET[r] ?? "SageFin can't make this household private right now."))].join(" ") ||
+    "SageFin can't make this household private right now.";
+
+  /** What going private here means, said before anything is made and again at the last step. */
+  const DESKTOP_ONLY =
+    "With no phone, SageFin then opens only in SageFin Desktop's window, on a computer that holds the key, and never in a browser. There are no phone notifications, and bank syncs wait until you unlock here. You can add a phone or another computer later.";
+
+  async function offerGoingPrivate() {
+    const win = window();
+    const store = keys();
+    const tokens = holderTokens(process.platform, store);
+    if (!win || !tokens || state.holdings[site().key]) return false;
+    openOverlay(win);
+    const intro = {
+      title: "Make this household private",
+      lead: `${PROMISE} This computer makes your household's key and keeps it in its security chip, and asks you with ${PRESENCE} each time it is used.`,
+      button: "Continue",
+      fine: DESKTOP_ONLY,
+    };
+    show(intro);
+    overlay?.webContents.once("did-finish-load", () => show(intro));
+    const eligible = await goPrivateEligibility(api(win));
+    if (eligible && !eligible.eligible) {
+      onGo = null;
+      show({ ...intro, button: null, said: notYet(eligible.reasons) });
+      return true;
+    }
+
+    const showFinal = () => {
+      onOther = null;
+      const view = {
+        title: "Make this household private",
+        lead: `${PRESENCE} asks twice: once to set up the key, and once to check that it opens your household. Then your household locks, and you unlock it here.`,
+        button: "Make private",
+        fine: DESKTOP_ONLY,
+      };
+      show(view);
+      onGo = async () => {
+        const g = going;
+        if (!g) return;
+        if (blocked()) {
+          show({ ...view, said: "Bring SageFin's window to the front, with the screen unlocked, and try again." });
+          return;
+        }
+        prompting = true;
+        /** @type {Awaited<ReturnType<typeof finishGoingPrivate>>} */
+        let done;
+        try {
+          done = await finishGoingPrivate({ api: api(win), keys: store, going: g, name: hostname(), tokens });
+        } catch {
+          done = { outcome: "failed", code: null };
+        } finally {
+          prompting = false;
+        }
+        record("goPrivate", done.outcome, "code" in done ? done.code : null);
+        if (done.outcome === "done") {
+          state.holdings[site().key] = done.holding;
+          save();
+          changed();
+          forgetGoingPrivate(g);
+          going = null;
+          win.webContents.reload();
+          await offerUnlock("full");
+        } else if (done.outcome === "cancelled") {
+          show({ ...view, said: "Your household is not private yet. Press Make private to try again." });
+        } else {
+          show({ ...view, said: (done.code && REFUSED[done.code]) || "That didn't work, and your household is not private yet. Try again." });
+        }
+      };
+    };
+
+    const showCodes = () => {
+      const g = going;
+      if (!g) return;
+      onOther = null;
+      show({
+        title: "Write down your recovery codes",
+        lead: "If this computer is lost or stops working, a recovery code is the only other way into your household. Without this computer and your codes, nobody can open it, SageFin included. Write all four down, and keep them somewhere safe away from this computer.",
+        codes: codeTexts(g),
+        button: "I've written them down",
+        fine: "Each code works once. They are shown only now: SageFin never sees them, and this computer does not keep them.",
+      });
+      onGo = async () => showConfirm();
+    };
+
+    const showConfirm = () => {
+      const g = going;
+      if (!g) return;
+      const n = g.confirmIndex + 1;
+      const view = {
+        title: `Type code ${n} back`,
+        lead: `To be sure it is written down right, type recovery code ${n} as you wrote it. Spaces and capital letters do not matter.`,
+        ask: { label: `Recovery code ${n}`, placeholder: "XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" },
+        button: "Check",
+        other: "Show the codes again",
+      };
+      show(view);
+      onOther = showCodes;
+      onGo = async (typed) => {
+        if (confirmRecoveryCode(g, typed ?? "")) showFinal();
+        else show({ ...view, said: `That isn't code ${n}. Check what you wrote down, or show the codes again.` });
+      };
+    };
+
+    onGo = async () => {
+      if (blocked()) {
+        show({ ...intro, said: "Bring SageFin's window to the front, with the screen unlocked, and try again." });
+        return;
+      }
+      /** @type {Awaited<ReturnType<typeof beginGoingPrivate>>} */
+      let begun;
+      try {
+        begun = await beginGoingPrivate({ api: api(win), keys: store });
+      } catch {
+        begun = { refused: null };
+      }
+      if (!("going" in begun)) {
+        record("goPrivate", "refused", begun.refused);
+        show({ ...intro, said: begun.refused === "not_eligible" ? notYet(begun.reasons) : (begun.refused && REFUSED[begun.refused]) || "That didn't work, and nothing was changed. Try again." });
+        return;
+      }
+      forgetGoingPrivate(going);
+      going = begun.going;
+      showCodes();
+    };
+    return true;
+  }
+
+  // ── A member with no phone: adding a device from here ─────────────────────────────────────
+
+  const ORDINALS = ["first", "second", "third"];
+
+  async function offerAddDevice() {
+    const win = window();
+    const store = keys();
+    const holding = state.holdings[site().key];
+    if (!win || !holding) return false;
+    openOverlay(win);
+    const intro = {
+      title: "Add a device",
+      lead: "Start on the new device. On a phone, open the SageFin app, sign in, and choose to add the phone to your household. On another computer, open SageFin Desktop and choose Use This Computer to Unlock SageFin… from its menu. Then type the code it shows under its QR code.",
+      ask: { label: "The code on the new device", placeholder: "0190 AAAA BBBB 7CCC 8DDD EEEE FFFF 0001" },
+      button: "Continue",
+      fine: `Only add a device that is in front of you. This computer asks you with ${PRESENCE} before it adds one. If you have a phone that holds your household's key, add devices with the phone instead.`,
+    };
+    show(intro);
+    overlay?.webContents.once("did-finish-load", () => show(intro));
+
+    /** @param {string | undefined} typed */
+    const start = async (typed) => {
+      onOther = null;
+      const addId = addIdFromTyped(typed);
+      if (!addId) {
+        show({ ...intro, said: "That isn't the code. It is 32 letters and numbers in groups of four, under the QR code on the new device." });
+        return;
+      }
+      /** @type {Awaited<ReturnType<typeof beginApproving>>} */
+      let begun;
+      try {
+        begun = await beginApproving({ api: api(win), holding, addId });
+      } catch {
+        begun = { refused: null };
+      }
+      if (!("approving" in begun)) {
+        record("addDevice", "refused", begun.refused);
+        show({ ...intro, said: (begun.refused && REFUSED[begun.refused]) || "That didn't work, and nothing was changed. Check the code and try again." });
+        return;
+      }
+      let approving = begun.approving;
+      const name = approving.device.name;
+      const kind = deviceKind(approving.platform);
+      onGo = null;
+      show({ title: "Waiting for the new device", lead: `When the ${kind} “${name}” shows twelve characters, they appear here too.`, button: null });
+
+      const stopped = (/** @type {string} */ said) => {
+        onOther = null;
+        onGo = start;
+        show({ ...intro, said });
+      };
+
+      /** @param {number} group */
+      const compare = (group) => {
+        const groups = checkGroups(/** @type {string} */ (approving.check));
+        if (group >= groups.length) return confirmAdd();
+        show({
+          title: "Compare the twelve characters",
+          lead: `The ${kind} “${name}” shows these twelve characters too. Is the ${ORDINALS[group]} group, ${groups[group]}, the same there?`,
+          check: approving.check,
+          button: "Same",
+          other: "Different",
+        });
+        onGo = async () => compare(group + 1);
+        onOther = () => {
+          record("addDevice", "refused", "check_differs");
+          stopped("Don't add that device: the characters differ, so it may not be yours. Nothing was changed.");
+        };
+      };
+
+      const confirmAdd = () => {
+        onOther = null;
+        const view = {
+          title: `Add “${name}”`,
+          lead: `This ${kind} will hold your household's key and unlock your household. ${PRESENCE} asks once.`,
+          check: approving.check,
+          button: "Add",
+        };
+        show(view);
+        onGo = async () => {
+          if (blocked()) {
+            show({ ...view, said: "Bring SageFin's window to the front, with the screen unlocked, and try again." });
+            return;
+          }
+          prompting = true;
+          /** @type {Awaited<ReturnType<typeof approveAdding>>} */
+          let done;
+          try {
+            done = await approveAdding({ api: api(win), keys: store, holding, approving });
+          } catch {
+            done = { outcome: "failed", code: null };
+          } finally {
+            prompting = false;
+          }
+          record("addDevice", done.outcome, done.code);
+          if (done.outcome === "done") {
+            onGo = null;
+            show({ title: "Added", lead: `“${name}” now holds your household's key. It finishes by unlocking once, on its own screen.`, button: null, cancel: "Done" });
+          } else if (done.outcome === "cancelled") {
+            show({ ...view, said: "Nothing was added. Press Add to try again." });
+          } else if (done.code === "unknown_holder") {
+            delete state.holdings[site().key];
+            save();
+            changed();
+            stopped(REFUSED.unknown_holder);
+          } else {
+            const said = done.code === "household_file_locked" ? "Unlock SageFin in this window first (Unlock SageFin… in the menu), then add the device." : done.code && REFUSED[done.code];
+            show({ ...view, said: said || "That didn't work, and nothing was added. Try again." });
+          }
+        };
+      };
+
+      const poll = setInterval(async () => {
+        if (!overlay) return clearInterval(poll);
+        const looked = await lookAtApproving(api(win), approving).catch(() => null);
+        if (!looked) return;
+        approving = looked.approving;
+        if (looked.show === "check") {
+          clearInterval(poll);
+          compare(0);
+        } else if (looked.show === "ended" || looked.show === "mismatch") {
+          clearInterval(poll);
+          record("addDevice", "failed", null);
+          stopped("That device was not added. Nothing was changed. Start again on the new device.");
+        }
+      }, 2000);
+    };
+    onGo = start;
     return true;
   }
 
@@ -421,6 +743,18 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
       return offerUnlock("full");
     },
 
+    /** The page asked to open Make This Household Private…, as the menu item does. It only opens this app's window. */
+    async pageAsksToGoPrivate() {
+      if (state.holdings[site().key] || !canHoldKey() || !pageMayAsk()) return false;
+      return offerGoingPrivate();
+    },
+
+    /** The page asked to open Add a Device…, as the menu item does. It only opens this app's window. */
+    async pageAsksToAddADevice() {
+      if (!state.holdings[site().key] || !pageMayAsk()) return false;
+      return offerAddDevice();
+    },
+
     /** The page asked to start adding this computer, as the menu item does. */
     async pageAsksToAdd() {
       if (state.holdings[site().key] || !canHoldKey() || !pageMayAsk()) return false;
@@ -431,8 +765,13 @@ export function startPrivateMode({ site, window, showWindow, dir }) {
     menuItems() {
       /** @type {Electron.MenuItemConstructorOptions[]} */
       const items = [];
-      if (state.holdings[site().key]) items.push({ label: "Unlock SageFin…", click: () => void offerUnlock("full") });
-      else if (holderTokens(process.platform, keys())) items.push({ label: "Use This Computer to Unlock SageFin…", click: () => void offerEnrolment() });
+      if (state.holdings[site().key]) {
+        items.push({ label: "Unlock SageFin…", click: () => void offerUnlock("full") });
+        items.push({ label: "Add a Device…", click: () => void offerAddDevice() });
+      } else if (holderTokens(process.platform, keys())) {
+        items.push({ label: "Use This Computer to Unlock SageFin…", click: () => void offerEnrolment() });
+        items.push({ label: "Make This Household Private…", click: () => void offerGoingPrivate() });
+      }
       return items;
     },
 

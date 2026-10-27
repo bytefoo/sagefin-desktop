@@ -479,7 +479,8 @@ is not one the app knows.
 | `lib/private-protocol.mjs` | SageFin's private-mode bytes, as a holder needs them: what it signs, seals and opens, the key envelope, the add-a-device check. Held to SageFin's own test vectors (`fixtures/private-mode-vectors.json`) |
 | `lib/private-mode.mjs` | When the key may be used, what the prompt says, the notification's limits, and unlocking, Sync and lock and adding this computer |
 | `lib/qr.mjs` | The QR code the phone scans to add this computer, made here at level M; every module held to the library SageFin's web app draws its codes with |
-| `main/private-mode.mjs` | The unlock window, the menu item and the notification |
+| `lib/first-holder.mjs` | For a member with no phone: making the household private on this computer, its recovery codes, and adding a device from here |
+| `main/private-mode.mjs` | The unlock window, the menu items and the notification |
 | `main/key-store.mjs`, `native/macos/` | The keys in the Mac's Secure Enclave, behind Touch ID |
 | `lib/key-helper.mjs`, `native/windows/` | Which helper a system has; the keys in a Windows computer's TPM, behind Windows Hello |
 
@@ -510,19 +511,22 @@ without reaching for the phone. What it holds itself to, in this source:
   Linux holds none. **The operating system's keychain alone is never used for this key**: it keeps
   a value from other people's accounts, not from a program running as you.
 - **It asks you every time.** Each unlock is one prompt, one key agreement and one signature, with
-  a sentence from a fixed list in `lib/private-mode.mjs`. Never while the screen is locked, the
+  a sentence from a fixed list in `lib/private-mode.mjs`. Making a household private here asks
+  twice, and adding a device once (below). Never while the screen is locked, the
   window hidden or behind another, or another prompt is showing.
 - **The page may ask; only the operating system's prompt approves.** The window shows SageFin's
   web app, which SageFin's server serves, so nothing the page asks for counts as you. The page may
-  ask the bridge four things: whether this computer holds a key of the household it names (a yes
+  ask the bridge six things: whether this computer holds a key of the household it names (a yes
   or no; no key, device id or anything else comes back); to unlock this window, which is what its
   **Unlock with Touch ID on this computer** (or **Windows Hello**) button does; to show the app's
-  unlock window; and to start adding this computer as the menu does. An unlock the page asks for
+  unlock window; to start adding this computer as the menu does; and to open the app's own
+  **Make This Household Private…** or **Add a Device…** window, as the menu does, after which
+  everything happens in that window and nothing on the page. An unlock the page asks for
   goes straight to Touch ID or Windows Hello, and on approval is the same unlock the unlock
   window's own button runs (`unlockAskedByPage`): this window only, with the fixed sentence for
   it, and only for the household this computer holds a key of. The page sends nothing that is
   put in the prompt or the request, and hears back only how it ended (`unlocked`, `cancelled`,
-  `refused`, `failed` or `not-now`). The last three asks are carried out only straight after a
+  `refused`, `failed` or `not-now`). The last five asks are carried out only straight after a
   real press on the page (`navigator.userActivation`, which a script cannot fake), with its window
   in front and the screen unlocked, with no prompt or unlock window already showing, and never
   twice within ten seconds (`whyIgnorePageAsk`), so a page cannot keep a prompt in front of you.
@@ -537,12 +541,12 @@ without reaching for the phone. What it holds itself to, in this source:
   that has not asked by then, from a web app older than that, gets the unlock window as before, so
   nobody is left without a way in. Asking changes nothing else: the answer is the same yes or no,
   and the page's other asks keep every limit above.
-- **It unlocks its own window, and Sync and lock, and nothing else.** The app asks SageFin for an
+- **It unlocks its own window, and Sync and lock, and no other session.** The app asks SageFin for an
   unlock on the window's own sign-in, checks the answer says that sign-in asked, and approves it
   on the same sign-in. It never takes a request id from anywhere else, so it can never let in a
-  browser somewhere else: your phone approves those. It never adds a device, replaces your
-  recovery codes or gives another member a key. SageFin's server refuses this computer's approval
-  of anything else too.
+  browser somewhere else: your phone approves those. It never replaces your recovery codes or
+  gives another member a key, and it adds a device only for a member who has no phone (below).
+  SageFin's server refuses this computer's approval of anything else too.
 - **New bank activity is a question.** When the check-in says your household is locked and your
   bank has new activity, the app shows a notification, "Your bank has new activity". It shows one
   per locked period and never two within six hours, and it counts these itself, so SageFin cannot
@@ -555,6 +559,25 @@ without reaching for the phone. What it holds itself to, in this source:
   read it, then twelve characters that both screens show. Add it only
   if they match. Your phone signs what the computer is and where its keys are, and SageFin keeps
   that. Removing the computer on your phone stops it unlocking.
+- **With no phone, this computer can be the first.** From the menu, **Make This Household
+  Private…** (or SageFin's Settings page, which asks the app to open the same window): the app
+  checks SageFin says the household may go private, makes two new keys in the security chip and
+  four recovery codes, and shows the codes once. You write them down and type one back; they are
+  never sent, never stored, and forgotten when the window closes. Then Touch ID or Windows Hello
+  asks twice (`lib/first-holder.mjs`): once to sign the household's new holders (this computer,
+  what it is and where its keys are, and the four codes, `setup-holders-v2`), and once to open the
+  new key from SageFin's draft and prove it, after checking that draft holds exactly this computer
+  and those four codes. Your household is then private and locked, and this computer unlocks it.
+  **SageFin then opens only in this app's window on a computer that holds the key**: no browser,
+  no phone notifications, and bank syncs wait until you unlock here. Losing the only computer
+  without the recovery codes loses the household. A recovery code brings it back on a phone.
+- **Adding a device from a computer**, for a member with no phone. **Add a Device…** asks for the
+  code the new phone or computer shows under its QR code, reads its keys and commitment, and only
+  then sends this computer's half of the check. When the new device reveals its half, and it
+  opens what the device committed to, both screens show twelve characters; you confirm each group
+  in turn, and Touch ID or Windows Hello asks once before this computer signs the device by its
+  name and keys (a computer also by what it is and whose it is, `holder-add-v2`). Once you have a
+  phone that holds the key, SageFin refuses this from a computer: the phone adds devices then.
 - **A record of every use stays on this computer** (`private-mode/private-mode.json` beside the
   captures folder): when, what for, and how it ended. SageFin cannot erase it. That file holds
   which household and which device this computer is, and its notices. None of these is a secret.
