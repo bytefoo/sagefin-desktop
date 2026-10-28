@@ -47,6 +47,7 @@ import {
   holdingOf,
   holdsKeyFor,
   forgetsHolding,
+  inNoHousehold,
   failureReason,
   failedSaying,
   householdStanding,
@@ -311,6 +312,8 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     const key = site().key;
     try {
       const answer = await api(win).get("/private/status").catch(() => null);
+      // Their household is gone, or they were removed from it: the key opens nothing.
+      if (inNoHousehold(answer) && state.holdings[key]) forgetHolding();
       const next = { key, standing: householdStanding(answer), locked: lockedForThisWindow(answer) };
       const same = standingNow && standingNow.key === next.key && standingNow.standing === next.standing && standingNow.locked === next.locked;
       standingNow = next;
