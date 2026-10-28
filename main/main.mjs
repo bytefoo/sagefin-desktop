@@ -18,17 +18,17 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
-import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
+import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { NO_OWNER, canComeBack, createOwners, ownerOf, takeOwnership } from "../lib/owner.mjs";
 import { adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
-import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
+import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, TROUBLE_RETRY_AFTER_MS, createSyncStates, nextScheduledRunAt, noteOrderPage, notePause, orderPageVerdict, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync, troubleStatus } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
 import { checkMenuItem, updateMenuItem } from "../lib/updates.mjs";
 import { UPDATE_SENTENCE, belowMinimum, runningVersion, versionLabel } from "../lib/version.mjs";
 import { addSent, sentSummary, uploadPending } from "../lib/uploader.mjs";
-import { awaitRelist, noteMissed, setAsideCount, stillToOpen, waitingCount } from "../lib/history.mjs";
+import { awaitRelist, setAsideCount, stillToOpen, waitingCount } from "../lib/history.mjs";
 import { startPrivateMode } from "./private-mode.mjs";
 import { openShell } from "./shell.mjs";
 import { readMacRequirement, startUpdates } from "./updates.mjs";
@@ -605,10 +605,17 @@ const maySyncNow = (retailer) => Boolean(smokeFixture) || maySync(retailer, cons
  * @param {import("../lib/retailers.mjs").Retailer} retailer
  * @param {string} kind
  * @param {string} payload
- * @returns {{ added: boolean, kept: boolean }}  `kept` false: not saved, because the member has not chosen to.
+ * @returns {{ added: boolean, kept: boolean }}  `kept` false: not saved, because the member has not
+ *   chosen to, or because it is an order's page with no order on it (`keepsPage`, lib/retailers.mjs).
  */
 function keep(retailer, kind, payload) {
   if (!store) return { added: false, kept: false };
+  // The retailer's error page, or an order's page it could not fill: nothing to read, so nothing
+  // to send. SageFin would only refuse it.
+  if (retailer.keepsPage && !retailer.keepsPage(kind, payload)) {
+    tell(retailer.code, `${retailer.name} showed no order on this page, so it was not saved.`);
+    return { added: false, kept: false };
+  }
   if (!mayDo(retailer, "saving")) {
     tell(retailer.code, `Not saved. Choose whether to save ${retailer.name}'s pages in Settings → Retail sync.`);
     return { added: false, kept: false };
@@ -911,6 +918,19 @@ const pageData = (win, retailer) =>
   );
 
 /**
+ * What a page says, for a page with no data of its own to read: its title and the start of its text,
+ * which is where a retailer's error page says it is one. Read, never changed, and never saved.
+ * @param {RetailerWindow} win
+ * @returns {Promise<string | null>}
+ */
+const pageText = (win) =>
+  win.isDestroyed()
+    ? Promise.resolve(null)
+    : win.webContents
+        .executeJavaScript("`${document.title}\n${(document.body?.innerText ?? '').slice(0, 4000)}`")
+        .then((text) => (typeof text === "string" ? text : null), () => null);
+
+/**
  * A sync: opens a retailer's orders list, then the page of each order not yet read in its present
  * state, one at a time and slowly. The pages are saved the way they are when the member opens them
  * — this only does the opening.
@@ -985,13 +1005,17 @@ async function runSync(retailer, { visible, by }) {
   /**
    * Ends the run. `needsMember` shows the window: the retailer is asking for a person. `refused` is
    * the retailer turning the run away, after which no scheduled run starts until the member's own
-   * Sync now finishes.
+   * Sync now finishes. `paused` is the retailer having trouble: the run stopped asking it, and is
+   * tried again by itself a little later (`notePause`, lib/sync-plan.mjs).
    */
   const finish = (
     /** @type {string} */ result,
-    { finished = false, needsMember = false, refused = false, signedOut = false, orders = /** @type {number | null} */ (null) } = {},
+    { finished = false, needsMember = false, refused = false, signedOut = false, paused = false, orders = /** @type {number | null} */ (null) } = {},
   ) => {
     const now = new Date().toISOString();
+    const retryAt = notePause(state, paused ? "paused" : finished ? "finished" : "other", Date.now());
+    // Looked for when it is due, not at the next hourly look.
+    if (retryAt) setTimeout(() => void runScheduled(), Math.max(0, Date.parse(retryAt) - Date.now()) + 1000);
     state.lastRunAt = now;
     // Unless told otherwise, a run with its window out of the way is the schedule's.
     state.lastRunBy = by ?? (visible ? "member" : "schedule");
@@ -1026,11 +1050,14 @@ async function runSync(retailer, { visible, by }) {
 
   /**
    * Whether the retailer turned the page just loaded away: its robot check, by address or by content,
-   * or a refusal status (Walmart's 412 and 418, Amazon's 503). Any of them ends the run.
+   * or a refusal status (Walmart's 412 and 418, Amazon's 503). Any of them ends the run. On an order
+   * page, a 5xx the retailer does not refuse with is its trouble, not a refusal (`troubleStatus`),
+   * and is left for the run to weigh.
    * @param {string | null} [data]  The page's data, when it has been read.
+   * @param {{ orderPage?: boolean }} [options]
    * @returns {{ text: string, check: boolean } | null}
    */
-  const turnedAway = (data = null) => {
+  const turnedAway = (data = null, { orderPage = false } = {}) => {
     const url = win.webContents.getURL();
     const status = lastStatus.get(win) ?? 200;
     if (retailer.isChallenge(url, { anyHost: Boolean(retailerFixture) }) || (data && retailer.isChallengePayload?.(data))) {
@@ -1040,6 +1067,7 @@ async function runSync(retailer, { visible, by }) {
       // and its window is not brought forward to ask.
       return { text: `${retailer.name} showed its robot check, so the sync stopped. It will not run again by itself.`, check: true };
     }
+    if (orderPage && troubleStatus(retailer, status)) return null;
     if (status >= 400) return { text: `${retailer.name} turned the sync away (${status}). It will not run again by itself.`, check: false };
     return null;
   };
@@ -1190,7 +1218,9 @@ async function runSync(retailer, { visible, by }) {
       console.log(`sync: listed ${listed.length} orders${caughtUp ? ", caught up" : ""}; ${state.queue.length} to read; opening ${todo.length}`);
     }
     let read = 0;
-    let missed = 0;
+    let troubled = 0;
+    /** @type {import("../lib/sync-plan.mjs").OrderPageStreak} */
+    const streak = { missed: 0, trouble: 0 };
     for (const [index, order] of todo.entries()) {
       // Built now, from what the list said of the order, by the code that builds the list's own
       // addresses: never an address the to-do list kept (lib/history.mjs). None means what is kept
@@ -1208,30 +1238,44 @@ async function runSync(retailer, { visible, by }) {
       const loaded = await load(win, retailerFixture ? onFixture(url, retailerFixture) : url);
       if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
       const data = loaded ? await pageData(win, retailer) : null;
-      const stopped = turnedAway(data);
+      const stopped = turnedAway(data, { orderPage: true });
       if (stopped) return stopTurnedAway(stopped);
 
-      if (data && orderIdIn(data) === order.id) {
-        // The page was saved by the same code that saves it when the member opens it. This only
-        // takes it off the to-do list, read in the state the list showed.
-        markRead(state, order);
-        states.set(siteKey, owner, retailer.code, state);
-        read += 1;
-        missed = 0;
-        continue;
-      }
-
-      // Not the order's page, or the page with no order on it (orderIdIn says none for both), so the
-      // order stays on the to-do list for the next run. One may be a slow load; two in a row is the
-      // retailer saying no, or an address it cannot fill. Each such page counts against its order,
-      // which the next run opens after the others, and which is set aside after MAX_MISSES runs
-      // (lib/history.mjs), so that it cannot end every run before the orders behind it are reached.
-      noteMissed(state, order);
+      // What the page was (lib/sync-plan.mjs). The order's page: the page was saved by the same code
+      // that saves it when the member opens it, and this only takes it off the to-do list, read in
+      // the state the list showed. Not the order's page, or one with no order on it: the order stays
+      // on the to-do list with a miss against it, which the next run opens after the others and sets
+      // aside after MAX_MISSES runs (lib/history.mjs), so it cannot end every run before the orders
+      // behind it are reached; two in a row is the retailer saying no, or addresses it cannot fill.
+      // The retailer's error page, or its 5xx: it is having trouble, no miss is counted, and two in
+      // a row pause the run, to be tried again by itself a little later. The order stays on the
+      // to-do list with this run's trouble against it, and is set aside after MAX_TROUBLES runs.
+      const verdict = loaded
+        ? orderPageVerdict(retailer, {
+            url: win.webContents.getURL(),
+            status: lastStatus.get(win) ?? 200,
+            payload: data ?? (await pageText(win)),
+            orderId: order.id,
+            anyHost: Boolean(retailerFixture),
+          })
+        : "missed";
+      if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
+      const stopsOn = noteOrderPage(state, order, verdict, streak);
       states.set(siteKey, owner, retailer.code, state);
-      missed += 1;
-      if (missed >= 2) {
+      if (verdict === "read") read += 1;
+      if (verdict === "trouble") troubled += 1;
+      if (stopsOn === "trouble") {
+        const retries = Boolean(state.lastFinishedAt) && (state.troubledRuns ?? 0) < TROUBLE_RETRY_AFTER_MS.length;
         return finish(
-          `${retailer.name} showed ${missed} order pages in a row with no order on them, so the sync has stopped for now. Those orders are still to read.`,
+          `${retailer.name} is having technical issues, so the sync has paused. ` +
+            (retries ? "SageFin will try again later." : "Press Sync now to try again later.") +
+            ` ${stillToOpen(state.queue).length} still to read.`,
+          { paused: true, orders: read },
+        );
+      }
+      if (stopsOn === "missed") {
+        return finish(
+          `${retailer.name} showed ${streak.missed} order pages in a row with no order on them, so the sync has stopped for now. Those orders are still to read.`,
           { needsMember: true },
         );
       }
@@ -1253,6 +1297,7 @@ async function runSync(retailer, { visible, by }) {
         ? "Nothing new to read."
         : `Read ${read} order${read === 1 ? "" : "s"}${read < todo.length ? ` of ${todo.length}` : ""}.`) +
         (left > 0 ? ` ${left} still to read.` : "") +
+        (troubled > 0 ? ` ${troubled} could not be read while ${retailer.name} was having technical issues, and ${troubled === 1 ? "is" : "are"} read next time.` : "") +
         (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : "") +
         (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : ""),
       { finished: true, orders: read },

@@ -209,8 +209,17 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 - **A robot check stops the run at once.** The run ends, says so, and stops the schedule. It does
   not bring its window forward to ask anybody to answer the check, and does not wait for anyone to.
   Two order pages in a row that are not the order also end it, and say so. A page with no order on
-  it (Walmart's header and nothing else, or its "Sorry" page) is not the order: the order is not
-  counted as read, and stays on the to-do list.
+  it (Walmart's header and nothing else) is not the order: the order is not counted as read, and
+  stays on the to-do list. Neither is saved or sent: an order's page is kept only with an order on
+  it (`keepsPage` in `lib/retailers.mjs`).
+- **When a retailer is having problems, the run waits and tries again.** Walmart's "Sorry... We're
+  having technical issues" page, Amazon's "Sorry! Something went wrong" page, or an order page
+  answered with a server error (a 5xx, other than Amazon's 503, which is a refusal), says nothing
+  about the order: it is not counted as a miss, not saved, and stays on the to-do list.
+  Two such pages in a row pause the run ("Walmart is having technical issues, so the sync has
+  paused"), and it is tried again by itself 20 minutes later, then an hour, then three hours, after
+  which the schedule is the member's again (`notePause` in `lib/sync-plan.mjs`). A pause is not a
+  refusal and does not stop the schedule; a retry starts only where a scheduled run would.
 - **An order whose page never shows it is set aside, not opened forever.** Each run that finds no
   order on an order's page counts it against that order, and the next run opens it after every
   order that has not missed, so two such pages cannot end each run before it reaches the orders
@@ -218,7 +227,11 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   are (`MAX_MISSES`, `nextToOpen` in `lib/history.mjs`). Its charges and total reached SageFin with
   the list; only its items are not read. It is tried again when the list shows it changed (a new
   fingerprint, or a new address, as an in-store purchase's became), or when the member's own
-  browsing passes it while setting up the history.
+  browsing passes it while setting up the history. An order whose page is the retailer's error page
+  every time is set aside the same way, after five runs that found it (`MAX_TROUBLES`): a run counts
+  it once however often it opens the order, and opens an order with more of these after those with
+  fewer, so two such orders cannot pause every run, and a day of the retailer's trouble is spread
+  across the to-do list rather than setting aside the first orders on it.
 - **An in-store Walmart purchase opens at its own address.** An order is taken to be one
   when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE` (it does both,
   and an online order neither), and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
@@ -251,7 +264,8 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   (`scheduleStopped` in `lib/sync-plan.mjs`).
 - **Turned away is final until the member says otherwise.** A robot check (by address or by its
   content), or any page answered with a refusal status (Walmart's 412 and 418, Amazon's 503), ends the
-  run and stops the daily schedule. The next run is the member's own Sync now; one of theirs that
+  run and stops the daily schedule. The orders list answered with any error status is a refusal
+  too; only an order page's server error is the retailer having problems (above). The next run is the member's own Sync now; one of theirs that
   finishes starts the schedule again. A run never asks the member to complete a check for it: an
   agent never answers a CAPTCHA, and neither does a person on its behalf.
 - **Daily, once the member has done it once.** After a sync the member started has finished, the
@@ -431,7 +445,8 @@ Walmart and Amazon are the retailers the app supports today.
 - **It stops at a robot check or a refusal**, says so, and does not try again by itself. It never
   answers a check, never waits for one to be answered, and never asks the member to answer one on a
   sync's behalf. During the member's own setup of their history, a check is theirs to answer, as on
-  any page they open.
+  any page they open. A retailer's own error page is not a refusal: the run pauses, and is tried
+  again a little later, at most three times in a row ([Syncing a retailer](#syncing-a-retailer)).
 - Each retailer has its own persistent browser profile, shared with nothing else. A retailer sign-in
   stays in that profile on the member's computer; SageFin never receives it.
 
