@@ -1247,8 +1247,9 @@ async function runSync(retailer, { visible, by }) {
       // on the to-do list with a miss against it, which the next run opens after the others and sets
       // aside after MAX_MISSES runs (lib/history.mjs), so it cannot end every run before the orders
       // behind it are reached; two in a row is the retailer saying no, or addresses it cannot fill.
-      // The retailer's error page, or its 5xx: it is having trouble, the order stays exactly as it
-      // was, and two in a row pause the run, to be tried again by itself a little later.
+      // The retailer's error page, or its 5xx: it is having trouble, no miss is counted, and two in
+      // a row pause the run, to be tried again by itself a little later. The order stays on the
+      // to-do list with this run's trouble against it, and is set aside after MAX_TROUBLES runs.
       const verdict = loaded
         ? orderPageVerdict(retailer, {
             url: win.webContents.getURL(),

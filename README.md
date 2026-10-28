@@ -215,7 +215,7 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
 - **When a retailer is having problems, the run waits and tries again.** Walmart's "Sorry... We're
   having technical issues" page, Amazon's "Sorry! Something went wrong" page, or an order page
   answered with a server error (a 5xx, other than Amazon's 503, which is a refusal), says nothing
-  about the order: it is not counted against it, not saved, and stays on the to-do list as it was.
+  about the order: it is not counted as a miss, not saved, and stays on the to-do list.
   Two such pages in a row pause the run ("Walmart is having technical issues, so the sync has
   paused"), and it is tried again by itself 20 minutes later, then an hour, then three hours, after
   which the schedule is the member's again (`notePause` in `lib/sync-plan.mjs`). A pause is not a
@@ -227,7 +227,11 @@ who wants to watch (`showWindowForMemberSync` in `lib/sync-plan.mjs`).
   are (`MAX_MISSES`, `nextToOpen` in `lib/history.mjs`). Its charges and total reached SageFin with
   the list; only its items are not read. It is tried again when the list shows it changed (a new
   fingerprint, or a new address, as an in-store purchase's became), or when the member's own
-  browsing passes it while setting up the history.
+  browsing passes it while setting up the history. An order whose page is the retailer's error page
+  every time is set aside the same way, after five runs that found it (`MAX_TROUBLES`): a run counts
+  it once however often it opens the order, and opens an order with more of these after those with
+  fewer, so two such orders cannot pause every run, and a day of the retailer's trouble is spread
+  across the to-do list rather than setting aside the first orders on it.
 - **An in-store Walmart purchase opens at its own address.** An order is taken to be one
   when Purchase history marks it `isInStore: true` or gives its type as `IN_STORE` (it does both,
   and an online order neither), and its page is filled only at `?groupId=…&storePurchase=true`; the app builds that
