@@ -265,7 +265,7 @@ async function start() {
   updates = startUpdates({
     macRequirement: await readMacRequirement(),
     syncing: () => syncing.size,
-    onChanged: refreshUpdateMenus,
+    onChanged: refreshMenus,
     beforeRestart: () => {
       quitting = true;
     },
@@ -406,12 +406,12 @@ async function start() {
 
   // A private household's own window, unlocked here with Touch ID once this computer holds a key.
   // Offered from the menu, and when the window is shown on a page that offers no way in itself.
-  privateMode = startPrivateMode({ site: () => site, window: () => main?.window ?? null, showWindow: () => main?.show(), dir: path.join(dir, "..", "private-mode"), changed: () => main?.refreshMenu() });
+  privateMode = startPrivateMode({ site: () => site, window: () => main?.window ?? null, showWindow: () => main?.show(), dir: path.join(dir, "..", "private-mode"), changed: refreshMenus });
   main.window.on("show", () => void privateMode?.onWindowShown());
   main.window.webContents.once("did-finish-load", () => {
     if (main?.window.isVisible()) void privateMode?.onWindowShown();
   });
-  main.refreshMenu();
+  refreshMenus();
 
   // Whatever was saved and not sent before the app last closed.
   void upload();
@@ -496,8 +496,8 @@ function updateMenuItems() {
   return check ? [{ label: check.label, enabled: check.enabled, click: () => void updates?.checkNow() }] : [];
 }
 
-/** Rebuilds both menus that carry the update lines, so neither keeps saying what was true before. */
-function refreshUpdateMenus() {
+/** Rebuilds the tray menu and the application menu together: update lines and private-mode items live in both, and a tray built before either changed keeps the old one. */
+function refreshMenus() {
   tray?.setContextMenu(trayMenu());
   main?.refreshMenu();
 }
@@ -1595,7 +1595,7 @@ function changed() {
   home?.webContents.send("desktop:changed");
   main?.changed();
   // The update line says whether a sync is in the way, so it follows syncs too.
-  if (updates?.downloaded()) refreshUpdateMenus();
+  if (updates?.downloaded()) refreshMenus();
 }
 
 /**
