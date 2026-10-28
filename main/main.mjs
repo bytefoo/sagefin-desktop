@@ -20,6 +20,7 @@ import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
 import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, markRead, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
+import { NO_OWNER, canComeBack, createOwners, ownerOf, takeOwnership } from "../lib/owner.mjs";
 import { adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
 import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, createSyncStates, nextScheduledRunAt, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
@@ -89,6 +90,12 @@ let site = resolveSite(undefined);
 const lastSent = new Map();
 /** Why sending is not happening, when the member can do something about it. @type {string | null} */
 let uploadNotice = null;
+/**
+ * Pages let go when the household changed, because nobody who can connect owns them: said until the
+ * household changes again, beneath anything sending has to say (lib/owner.mjs).
+ * @type {string | null}
+ */
+let letGoNotice = null;
 let uploading = false;
 let uploadAgain = false;
 /** The member's choices about each retailer (lib/consent.mjs). @type {ReturnType<typeof createConsents> | null} */
@@ -97,6 +104,10 @@ let consents = null;
 let accountNames = null;
 /** What each sync has already read. @type {ReturnType<typeof createSyncStates> | null} */
 let syncStates = null;
+/** Whose memory each site's is: which household, and which person (lib/owner.mjs). @type {ReturnType<typeof createOwners> | null} */
+let owners = null;
+/** The household each running sync reads for, by retailer: where the pages it saves are filed. @type {Map<string, string>} */
+const runOwners = new Map();
 /** The syncs running now, and what each is doing. @type {Map<string, string>} */
 const syncing = new Map();
 /** The member's choices about running in the background. @type {ReturnType<typeof createPreferences> | null} */
@@ -204,6 +215,7 @@ async function start() {
     syncStates = createSyncStates({ dir: path.join(dir, "..", "sync"), ...sealing });
     consents = createConsents({ dir: path.join(dir, "..", "consent"), ...sealing });
     accountNames = createAccountNames({ dir: path.join(dir, "..", "account-names"), ...sealing });
+    owners = createOwners({ dir: path.join(dir, "..", "sync"), ...sealing });
   }
 
   ipcMain.handle("desktop:status", (event) => (fromHome(event) ? status() : null));
@@ -241,6 +253,9 @@ async function start() {
 
   // Which SageFin to open: production, unless a development run names test or local.
   site = resolveSite(app.isPackaged ? undefined : process.env.SAGEFIN_DESKTOP_SITE);
+  // Whose memory this site's is, before anything reads it: on the first start after an update, what
+  // was kept before households were is weighed here (lib/owner.mjs).
+  settleOwner();
   // A development run otherwise shows Electron's own icon in the Dock. A packaged app takes its
   // icon from the bundle.
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(DOCK_ICON));
@@ -299,7 +314,7 @@ async function start() {
         if (!maySyncNow(retailer)) return false;
         // Not while the member is setting the history up in its window.
         if (settingUp.has(code)) return false;
-        const visible = showWindowForMemberSync(syncStates.get(site.key, retailer.code));
+        const visible = showWindowForMemberSync(syncStates.get(site.key, household(), retailer.code));
         void runSync(retailer, { visible, by: "member" });
         return true;
       },
@@ -311,7 +326,7 @@ async function start() {
         // Nothing to answer where the terms allow it: recording a yes there would read as a choice
         // nobody was asked to make.
         if (!needsChoice(retailer, which)) return false;
-        consents.set(retailer, which, answer);
+        consents.set(person(), retailer, which, answer);
         changed();
         return true;
       },
@@ -351,6 +366,9 @@ async function start() {
         if (!credential || !credentials) return false;
         credentials.set(site.key, credential);
         uploadNotice = null;
+        // A credential for another household, or another person, starts them with nothing of the
+        // last one's (lib/owner.mjs).
+        settleOwner();
         changed();
         void upload();
         return true;
@@ -378,6 +396,7 @@ async function start() {
       site = next;
       uploadNotice = null;
       lastSent.clear();
+      settleOwner();
       changed();
       void upload();
     },
@@ -529,15 +548,56 @@ function tellAboutBackground() {
 }
 
 /**
+ * Whose memory the site being shown has: the household of the credential held, or, with none, of
+ * the last one held, so that a computer that has lost its connection keeps the last household's
+ * memory for it rather than handing it to whoever connects next (lib/owner.mjs).
+ */
+const memoryOwner = () => owners?.get(site.key) ?? NO_OWNER;
+/** The household this site's sync memory and waiting pages are kept for. */
+const household = () => memoryOwner().household;
+/** The person whose choices about retailers' terms apply. */
+const person = () => memoryOwner().person;
+
+/**
+ * Records whose memory the site being shown has, from the credential held now, and carries out
+ * what a change means (`takeOwnership`, lib/owner.mjs). A change forgets what this run of the app
+ * learnt for the last household: SageFin's answers, what was sent, the last notices.
+ */
+function settleOwner() {
+  if (!owners || !syncStates || !store || !consents) return;
+  const settled = takeOwnership({
+    siteKey: site.key,
+    siteOrigin: site.origin,
+    credential: credentials?.get(site.key) ?? null,
+    retailers: RETAILERS.map((r) => r.code),
+    owners,
+    syncStates,
+    captures: store,
+    consents,
+  });
+  if (!settled.changed) return;
+  letGoNotice = null;
+  if (lastCheckIn?.siteKey === site.key) lastCheckIn = null;
+  for (const key of [...chosenSchedules.keys()]) if (key.startsWith(`${site.key}:`)) chosenSchedules.delete(key);
+  lastSent.clear();
+  notices.clear();
+  browsed.clear();
+  if (settled.discarded > 0) {
+    letGoNotice = `${settled.discarded} page${settled.discarded === 1 ? "" : "s"} saved here earlier could not be shown to be this household's, so ${settled.discarded === 1 ? "it was" : "they were"} let go and not sent.`;
+  }
+  refreshStrips();
+}
+
+/**
  * Whether the member has agreed to this at this retailer, where its terms make it theirs to agree
  * to (lib/consent.mjs). The one exception is the development smoke run, which saves one page of
  * a local file and quits.
  * @param {import("../lib/retailers.mjs").Retailer} retailer
  * @param {import("../lib/consent.mjs").ConsentKind} kind
  */
-const mayDo = (retailer, kind) => Boolean(smokeFixture) || allowed(retailer, kind, consents?.get(retailer.code));
+const mayDo = (retailer, kind) => Boolean(smokeFixture) || allowed(retailer, kind, consents?.get(person(), retailer.code));
 /** @param {import("../lib/retailers.mjs").Retailer} retailer */
-const maySyncNow = (retailer) => Boolean(smokeFixture) || maySync(retailer, consents?.get(retailer.code));
+const maySyncNow = (retailer) => Boolean(smokeFixture) || maySync(retailer, consents?.get(person(), retailer.code));
 
 /**
  * Keeps a page, if the member has agreed to its being kept. Every page the app saves goes through
@@ -558,7 +618,11 @@ function keep(retailer, kind, payload) {
     console.log(`keys: ${retailer.code} ${kind}, ${paths.length} matching`);
     for (const line of paths) console.log(`keys:   ${line}`);
   }
-  const { added } = store.add({ site: site.origin, retailer: retailer.code, kind, payload });
+  // A sync's pages are filed under the household it reads for; the member's own browsing, under the
+  // household whose memory the site has now. Never under one whose memory has been let go.
+  const owner = (syncing.has(retailer.code) ? runOwners.get(retailer.code) : undefined) ?? household();
+  if (owner !== household() && !canComeBack(owner)) return { added: false, kept: false };
+  const { added } = store.add({ site: site.origin, owner, retailer: retailer.code, kind, payload });
   if (added) void upload();
   return { added, kept: true };
 }
@@ -579,7 +643,7 @@ async function runScheduled() {
     if (settingUp.has(retailer.code)) continue;
     // Too old to share the daily sync as SageFin now runs it.
     if (updateRequired()) continue;
-    if (scheduledRunDue(syncStates.get(site.key, retailer.code), Date.now(), SCHEDULE_EVERY, chosenSchedule(retailer.code))) {
+    if (scheduledRunDue(syncStates.get(site.key, household(), retailer.code), Date.now(), SCHEDULE_EVERY, chosenSchedule(retailer.code))) {
       void runSync(retailer, { visible: false });
     }
   }
@@ -639,13 +703,15 @@ async function checkInOnce() {
   const credential = credentials.get(asked.key);
   if (!credential) return;
   const states = syncStates;
+  // What is reported is the memory of the household this credential is for, and nobody else's.
+  const owner = ownerOf(credential).household;
 
   const result = await checkIn({
     site: asked.origin,
     secret: credential.secret,
     version: RUNNING_VERSION,
     reports: RETAILERS.filter((r) => r.syncs).map((r) =>
-      report(r.code, states.get(asked.key, r.code), maySyncNow(r), r.memberNamesAccount ? (accountNames?.get(asked.key, r.code) ?? null) : null),
+      report(r.code, states.get(asked.key, owner, r.code), maySyncNow(r), r.memberNamesAccount ? (accountNames?.get(asked.key, r.code) ?? null) : null),
     ),
     fetch,
   });
@@ -667,12 +733,12 @@ async function checkInOnce() {
     if (!retailer.syncs || !answer || syncing.has(retailer.code)) continue;
     // The member ran Sync now on another computer and it finished: the refusal remembered here
     // is over there too.
-    const state = states.get(asked.key, retailer.code);
-    if (refusalLifted(state, answer)) states.set(asked.key, retailer.code, { ...state, refusedAt: null });
+    const state = states.get(asked.key, owner, retailer.code);
+    if (refusalLifted(state, answer)) states.set(asked.key, owner, retailer.code, { ...state, refusedAt: null });
 
     // A sync the member asked for from the web. It runs as a scheduled one does, out of the way,
     // and is theirs: they started it, though not from here. Only for the SageFin still on screen.
-    if (asked.key === site.key && !updateRequired() && shouldStartRequested(states.get(asked.key, retailer.code), answer, Date.now())) {
+    if (asked.key === site.key && !updateRequired() && shouldStartRequested(states.get(asked.key, owner, retailer.code), answer, Date.now())) {
       void runSync(retailer, { visible: false, by: "member" });
     }
   }
@@ -867,7 +933,11 @@ async function runSync(retailer, { visible, by }) {
   const states = syncStates;
   const siteKey = site.key;
   const siteOrigin = site.origin;
-  const state = states.get(siteKey, retailer.code);
+  // The household this run reads for, from start to end: a credential connected for another one
+  // while it runs does not move its memory, or the pages it saves, to that one.
+  const owner = household();
+  const state = states.get(siteKey, owner, retailer.code);
+  runOwners.set(retailer.code, owner);
 
   const progress = (/** @type {string} */ text) => {
     syncing.set(retailer.code, text);
@@ -893,8 +963,9 @@ async function runSync(retailer, { visible, by }) {
       state.lastResult = `SageFin no longer has the ${retailer.name} orders this computer read, so this computer has forgotten them too. Set up your ${retailer.name} history again to send them.`;
       state.lastOutcome = "stopped";
       state.lastOrders = null;
-      states.set(siteKey, retailer.code, state);
+      states.set(siteKey, owner, retailer.code, state);
       syncing.delete(retailer.code);
+      runOwners.delete(retailer.code);
       browsed.delete(retailer.code);
       changed();
       void checkInNow();
@@ -932,8 +1003,9 @@ async function runSync(retailer, { visible, by }) {
       state.refusedAt = null;
     }
     if (refused) state.refusedAt = now;
-    states.set(siteKey, retailer.code, state);
+    states.set(siteKey, owner, retailer.code, state);
     syncing.delete(retailer.code);
+    runOwners.delete(retailer.code);
     // The pages' own messages ("Saved this page.") were the run's working; its result says what it came to.
     notices.delete(retailer.code);
     if (!win.isDestroyed()) {
@@ -1019,14 +1091,14 @@ async function runSync(retailer, { visible, by }) {
         onHeld: (held) => {
           if (held.here > 0 && state.readFor !== credential.tokenId) {
             state.readFor = credential.tokenId;
-            states.set(siteKey, retailer.code, state);
+            states.set(siteKey, owner, retailer.code, state);
           }
         },
       });
       if (known) toldSageFin = true;
       if (adoptRead(retailer.code, orders, state.seen, known) > 0) {
         dropRead(state);
-        states.set(siteKey, retailer.code, state);
+        states.set(siteKey, owner, retailer.code, state);
       }
     };
     const maxPages = listPagesPerRun ?? MAX_LIST_PAGES_PER_RUN;
@@ -1055,7 +1127,7 @@ async function runSync(retailer, { visible, by }) {
       }
       enqueue(state, pageOrders);
       noteCharges(state, charges);
-      states.set(siteKey, retailer.code, state);
+      states.set(siteKey, owner, retailer.code, state);
 
       // The retailer showed the same page again: nothing new and nothing more of what was. Not an
       // end, only a reason to stop asking.
@@ -1126,7 +1198,7 @@ async function runSync(retailer, { visible, by }) {
       const url = retailer.orderUrl?.(order) ?? null;
       if (!url) {
         awaitRelist(state, order);
-        states.set(siteKey, retailer.code, state);
+        states.set(siteKey, owner, retailer.code, state);
         continue;
       }
       progress(`Reading order ${index + 1} of ${todo.length}…`);
@@ -1143,7 +1215,7 @@ async function runSync(retailer, { visible, by }) {
         // The page was saved by the same code that saves it when the member opens it. This only
         // takes it off the to-do list, read in the state the list showed.
         markRead(state, order);
-        states.set(siteKey, retailer.code, state);
+        states.set(siteKey, owner, retailer.code, state);
         read += 1;
         missed = 0;
         continue;
@@ -1155,7 +1227,7 @@ async function runSync(retailer, { visible, by }) {
       // which the next run opens after the others, and which is set aside after MAX_MISSES runs
       // (lib/history.mjs), so that it cannot end every run before the orders behind it are reached.
       noteMissed(state, order);
-      states.set(siteKey, retailer.code, state);
+      states.set(siteKey, owner, retailer.code, state);
       missed += 1;
       if (missed >= 2) {
         return finish(
@@ -1210,7 +1282,9 @@ async function upload() {
   const sendingTo = site;
   changed();
   try {
-    const summary = await uploadPending({ store, site: sendingTo.origin, secret: credential.secret, fetch });
+    // Only the pages saved for the household this credential is for: SageFin files what it is sent
+    // under the credential's household, whoever's the page was.
+    const summary = await uploadPending({ store, site: sendingTo.origin, owner: ownerOf(credential).household, secret: credential.secret, fetch });
     for (const sent of summary.sent) {
       lastSent.set(sent.retailer, addSent(lastSent.get(sent.retailer), sent, new Date()));
     }
@@ -1274,7 +1348,9 @@ function fromHome(event) {
 
 function status() {
   // Only what was saved under the SageFin being shown: a page saved on test is not waiting here.
-  const records = (store ? store.list() : []).filter((c) => c.site === site.origin);
+  // Nor one saved for another household: it is not waiting to be sent to this one.
+  const owner = household();
+  const records = (store ? store.list() : []).filter((c) => c.site === site.origin && c.owner === owner);
   return {
     canSave: Boolean(store),
     connected: Boolean(credentials?.get(site.key)),
@@ -1282,7 +1358,7 @@ function status() {
     // SageFin lists the id in Settings, and the page needs it to mark this computer in that list.
     tokenId: credentials?.get(site.key)?.tokenId ?? null,
     sending: uploading,
-    uploadNotice,
+    uploadNotice: uploadNotice ?? letGoNotice,
     retailers: RETAILERS.map((r) => {
       const mine = records.filter((c) => c.retailer === r.code);
       return {
@@ -1308,7 +1384,7 @@ function status() {
  * @param {import("../lib/retailers.mjs").Retailer} retailer
  */
 function termsStatus(retailer) {
-  const choices = consents?.get(retailer.code);
+  const choices = consents?.get(person(), retailer.code);
   /** @param {import("../lib/consent.mjs").ConsentKind} kind */
   const about = (kind) => ({
     // Whether this is the member's to choose, and their standing answer: null is "not asked, or
@@ -1331,7 +1407,7 @@ function termsStatus(retailer) {
 
 /** What a retailer's sync is doing, and what its last run came to. @param {string} code */
 function syncStatus(code) {
-  const state = syncStates?.get(site.key, code);
+  const state = syncStates?.get(site.key, household(), code);
   return {
     syncable: Boolean(retailerByCode(code)?.syncs),
     // Whether this retailer's account is one the member names, and the name they gave it here.
@@ -1401,12 +1477,12 @@ function noteListed(retailer, kind, payload) {
   const known = new Set(gathered.listed.map((o) => o.id));
   browsed.set(retailer.code, [...gathered.listed, ...gathered.page.filter((o) => !known.has(o.id))]);
 
-  const state = syncStates.get(site.key, retailer.code);
+  const state = syncStates.get(site.key, household(), retailer.code);
   // The member's own browsing past an order set aside, while setting up, gives it another chance.
   const { alreadyRead } = enqueue(state, gathered.page, { retry: settingUp.has(retailer.code) });
   noteCharges(state, charges);
   if (settingUp.has(retailer.code)) noteSetup(state.setup, gathered.page, alreadyRead, charges.map((c) => c.date));
-  syncStates.set(site.key, retailer.code, state);
+  syncStates.set(site.key, household(), retailer.code, state);
   refreshStrips();
   changed();
 }
@@ -1424,10 +1500,10 @@ function setUpHistory(code) {
     tell(code, `Choose whether to save ${retailer.name}'s pages in Settings → Retail sync, then set up its history.`);
     return false;
   }
-  const state = syncStates.get(site.key, code);
+  const state = syncStates.get(site.key, household(), code);
   if (state.setup.status !== "started") {
     state.setup = { ...state.setup, status: "started", startedAt: new Date().toISOString(), doneAt: null };
-    syncStates.set(site.key, code, state);
+    syncStates.set(site.key, household(), code, state);
   }
   settingUp.add(code);
   const win = openRetailer(retailer, { navigate: false });
@@ -1445,9 +1521,9 @@ function setUpHistory(code) {
  */
 function finishSetup(code) {
   if (!syncStates || !settingUp.has(code)) return false;
-  const state = syncStates.get(site.key, code);
+  const state = syncStates.get(site.key, household(), code);
   state.setup = { ...state.setup, status: "done", doneAt: new Date().toISOString() };
-  syncStates.set(site.key, code, state);
+  syncStates.set(site.key, household(), code, state);
   settingUp.delete(code);
   const win = windows.get(code);
   if (win && !win.isDestroyed()) win.close();
@@ -1465,9 +1541,9 @@ function changeHowFarBack(code, given) {
   const retailer = retailerByCode(code);
   const from = howFarBackDate(given);
   if (!retailer?.syncs || !syncStates || syncing.has(code) || !from) return null;
-  const state = syncStates.get(site.key, code);
+  const state = syncStates.get(site.key, household(), code);
   const dropped = dropOlderThan(state, from);
-  syncStates.set(site.key, code, state);
+  syncStates.set(site.key, household(), code, state);
   tell(code, dropped === 0 ? "Nothing on the to-do list was older than that." : `${dropped} older order${dropped === 1 ? "" : "s"} taken off the to-do list.`);
   return dropped;
 }
@@ -1480,9 +1556,9 @@ function changeHowFarBack(code, given) {
 function startHistoryOver(code) {
   const retailer = retailerByCode(code);
   if (!retailer?.syncs || !syncStates || syncing.has(code)) return false;
-  const state = syncStates.get(site.key, code);
+  const state = syncStates.get(site.key, household(), code);
   startOver(state);
-  syncStates.set(site.key, code, state);
+  syncStates.set(site.key, household(), code, state);
   browsed.delete(code);
   return setUpHistory(code);
 }
@@ -1502,7 +1578,7 @@ function stripState(code) {
   const given = bankHistories.get(site.key) ?? null;
   // A date SageFin's page gave is shown; with none, a locked household is said to be locked.
   const bank = given?.start ? given : lockedSites.get(site.key) ? { start: null, locked: true } : given;
-  return stripText({ name: retailer.name, setup: syncStates.get(site.key, code).setup, bank, checking: checking.has(code) });
+  return stripText({ name: retailer.name, setup: syncStates.get(site.key, household(), code).setup, bank, checking: checking.has(code) });
 }
 
 /** Tells each open strip to ask again. */
