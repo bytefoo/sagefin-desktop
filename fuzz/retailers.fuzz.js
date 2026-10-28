@@ -34,6 +34,9 @@ const AMAZON_PIECES = [
   " disabled ",
   'action="/errors/validateCaptcha"',
   'id="ap_email"',
+  "<title>Sorry! Something went wrong!</title>",
+  "Sorry! Something went wrong on our end",
+  '<a href="/ref=cs_503_link">',
   "<",
   ">",
   '"',
@@ -351,6 +354,32 @@ test("Walmart: an order's fingerprint does not change with the order its items c
       const [b] = walmart.listedOrders?.(list(reversed)) ?? [];
       assert.ok(a && b);
       assert.equal(a.fingerprint, b.fingerprint);
+    }),
+  );
+});
+
+// Amazon's error page is never an order, whatever it links to, and is never saved: an error page
+// taken for an order would mark it read, and its items would never be read.
+test("Amazon: a page Amazon says is its error page is never placed under an order, and never kept", () => {
+  const url = "https://www.amazon.com/gp/your-account/order-details?orderID=111-0000001-0000001";
+  fc.assert(
+    fc.property(amazonPage, (payload) => {
+      if (!amazon.isErrorPage?.(url, payload, 200)) return;
+      assert.equal(amazon.orderIdIn?.(payload), null);
+      assert.equal(amazon.keepsPage?.("order_detail_html", payload), false);
+    }),
+  );
+});
+
+// A Walmart order page is the order, the store's trouble, or neither; never two of them. And it is
+// kept exactly when it is the order.
+test("Walmart: an order page is never both the order and Walmart's error page, and is kept only with its order", () => {
+  const url = "https://www.walmart.com/orders/200000000000001";
+  fc.assert(
+    fc.property(walmartPage, (payload) => {
+      const read = walmart.orderIdIn?.(payload) !== null;
+      if (read) assert.equal(walmart.isErrorPage?.(url, payload, 200), false);
+      assert.equal(walmart.keepsPage?.("order_detail_next_data", payload), read);
     }),
   );
 });
