@@ -44,7 +44,9 @@ if (SAGEFIN_ORIGINS.includes(location.origin)) {
     // Where the household's bank history starts, as the signed-in page read it ({ start, locked }),
     // for that strip. A date, or that the household is locked; nothing else is taken.
     setBankHistory: (value) => ipcRenderer.invoke("shell:bank-history", value),
-    // Takes the upload-only token the signed-in page minted. Nothing secret ever comes back.
+    // Takes the upload-only token the signed-in page minted, and may say which household and person
+    // SageFin bound it to ({ secret, tokenId, name, householdId?, userId? }), so this computer's memory
+    // is kept for that household and that person (lib/owner.mjs). Nothing secret ever comes back.
     connect: (credential) => ipcRenderer.invoke("shell:connect", credential),
     disconnect: () => ipcRenderer.invoke("shell:disconnect"),
     onRetailersChanged,
