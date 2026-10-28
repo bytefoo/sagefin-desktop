@@ -302,7 +302,44 @@ does that only if you say so (`lib/consent.mjs`).
   the agent marker and never answering a robot check are the same whatever you chose.
 
 Your choice covers your own account. It is not legal advice, and it does not make what a
-retailer's terms prohibit permitted.
+retailer's terms prohibit permitted. It is kept for you, the person connected, and not for the
+computer: see the next section.
+
+## Whose memory it is
+
+What a sync remembers (how far back the history is set up, the to-do list, the orders already
+read) and the pages waiting to be sent belong to one SageFin household. Your choices about a
+retailer's terms belong to you. So the app keeps each under whoever it belongs to
+(`lib/owner.mjs`), not under the computer.
+
+- **Who is connected is the credential.** SageFin binds the credential the signed-in page hands
+  the app to one household and one person, and the page may say which (`householdId` and `userId`,
+  beside the token; ids only, and anything else is ignored). Where the page does not say, the
+  credential itself stands for both, so a new credential is treated as somebody new.
+- **Another household starts with nothing.** A household deleted and made again, a member who
+  moves to another household, or someone else connecting the computer: the retailers show no
+  history set up, an empty to-do list and no pages waiting, and the first sync reads as a first
+  sync does. The app never sends one household's waiting pages with another's credential
+  (`lib/uploader.mjs`), and never takes an order as read because it was read for another household.
+- **The last household's memory is kept for it,** sealed, when it can come back (the page said
+  which household it was): move back, and its history and waiting pages are where they were. Memory
+  known only by a credential that has been replaced can never be claimed, and is let go when the
+  new one connects; the retailers window then says how many waiting pages were let go and not sent.
+- **Your choices go with you.** Connected to another household, they still hold; someone else
+  connecting the computer is asked for their own.
+- **Losing the connection changes nothing.** The memory stays with the household it was for, and
+  is not handed to whoever connects next.
+- **Before the computer was ever connected**, what was kept is the first household's to connect.
+- **Updating from a version that kept memory per computer:** at the first start with a
+  credential, each retailer's memory is kept only where SageFin said it held what this computer
+  read under exactly that credential, and no page from before is still waiting for that retailer.
+  Anything else cannot be shown to be this household's, so it is let go: the retailer shows its
+  history as not set up, and pages saved before the update and never sent are let go and not sent.
+  Your choices are kept where some memory was, and asked again otherwise.
+
+The memory of the browsing itself is not anyone's in this sense: each retailer's window keeps its
+own sign-in, and what you call an account at Amazon (`lib/account-names.mjs`) names that sign-in on
+this computer. Neither changes when the household does.
 
 ## What it does, and what it deliberately does not
 
@@ -418,8 +455,9 @@ at all. Once SageFin holds it, the copy here is removed.
   page, so it is removed here; 401 or 403 drops the token and asks the member to connect again; a
   busy or failing server and no connection end the run and keep everything; any other refusal is
   about that one page, which stays while the rest go.
-- **A page is filed under the SageFin the app was showing** when it was saved, and is sent only
-  there. A stand-in page (`SAGEFIN_DESKTOP_RETAILER_FIXTURE`) is only ever sent to a local SageFin.
+- **A page is filed under the SageFin the app was showing** when it was saved, and under the
+  household its memory was for, and is sent only there, with that household's credential
+  ([Whose memory it is](#whose-memory-it-is)). A stand-in page (`SAGEFIN_DESKTOP_RETAILER_FIXTURE`) is only ever sent to a local SageFin.
 
 This does not put saving the data inside a retailer's terms of use. Walmart's prohibit storing
 order data with any "manual or automatic device". It is the least a tool can do and still be useful.
@@ -473,6 +511,7 @@ is not one the app knows.
 | `lib/check-in.mjs` | The five-minute check-in with SageFin: what is sent, and what the answer permits |
 | `lib/read-orders.mjs` | Asking SageFin which listed orders another computer has read: the key sent per order, and what the answer skips |
 | `lib/consent.mjs` | The member's choices per retailer, and the gate they are |
+| `lib/owner.mjs` | Whose memory it is: which household a sync's memory and waiting pages are for, whose choices apply, and what a change of either does |
 | `lib/updates.mjs` | Where the app can update itself, and when it may restart to do it |
 | `main/updates.mjs` | Looks for a newer release on GitHub, downloads it, and installs it on quit |
 | `lib/html.mjs` | Makes a retailer's HTML page small enough to send |
