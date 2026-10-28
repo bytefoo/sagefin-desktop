@@ -58,6 +58,7 @@ function show(view) {
     }),
   );
   codes.hidden = !view.codes || view.codes.length === 0;
+  $("codes-actions").hidden = codes.hidden;
   const wasAsking = asking;
   asking = Boolean(view.ask);
   $("ask-row").hidden = !asking;
@@ -78,4 +79,6 @@ $("ask").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !$("go").hidden) go();
 });
 $("other").addEventListener("click", () => window.unlock.other());
+$("copy").addEventListener("click", () => window.unlock.copyCodes());
+$("save").addEventListener("click", () => window.unlock.saveCodes());
 $("cancel").addEventListener("click", () => window.unlock.cancel());

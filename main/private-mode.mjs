@@ -32,7 +32,7 @@
 //   no key or anything of one comes back. What approves is the person, at the prompt.
 // - **A record of every use**, kept on this computer, which SageFin cannot erase.
 
-import { BrowserWindow, Notification, ipcMain, powerMonitor } from "electron";
+import { BrowserWindow, Notification, clipboard, dialog, ipcMain, powerMonitor } from "electron";
 import { hostname } from "node:os";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -46,6 +46,11 @@ import {
   holderTokens,
   holdingOf,
   holdsKeyFor,
+  forgetsHolding,
+  failureReason,
+  failedSaying,
+  householdStanding,
+  menuChoices,
   lockedForThisWindow,
   logged,
   lookAtEnrolment,
@@ -68,6 +73,7 @@ import {
   beginGoingPrivate,
   checkGroups,
   codeTexts,
+  codesAsText,
   confirmRecoveryCode,
   deviceKind,
   finishGoingPrivate,
@@ -85,11 +91,14 @@ const PRESENCE = presenceName(process.platform);
 /** What SageFin said when it refused, in words for the person here. Codes only; never a raw one. */
 const REFUSED = /** @type {Record<string, string>} */ ({
   unknown_holder: "This computer is no longer one of your household's devices. Your phone can add it again.",
+  not_private: "This household is not private any more, so this computer no longer holds a key for it. Nothing needs unlocking.",
+  standard_again: "This household is not private any more, so this computer no longer holds a key for it. Nothing needs unlocking.",
+  other_household: "This computer holds a key for a different household from the one you are signed in to. Nothing was unlocked.",
   nothing_to_sync: "There is nothing new to sync.",
   already_unlocked: "Your household is already unlocked somewhere.",
   key_protection_not_accepted: "This computer cannot hold a key. Unlock with your phone instead.",
   household_file_locked: "Unlock with your phone first, then try again.",
-  sign_in_again: "This change needs a recent sign-in. Sign out of SageFin in this window, sign in again, and start again. Nothing was changed.",
+  sign_in_again: "This change needs a recent sign-in. Nothing was changed. Press the button to sign in again, and this will start again.",
   not_eligible: "This household can't be made private right now. SageFin's Settings → Security says why.",
   procedure_in_progress: "A change to this household's keys is already under way. Try again in a few minutes.",
   begin_again: "That didn't finish, and nothing was changed. Start again.",
@@ -181,7 +190,22 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     // Taller while it shows the enrolment's QR code or the recovery codes, so they and the words fit.
     overlay?.setContentSize(460, view.qr || view.codes ? 680 : view.ask || view.check ? 460 : 360);
     overlay?.webContents.send("unlock:view", view);
+    codesShown = Boolean(view.codes);
   };
+
+  /** The recovery codes are on screen, so Copy and Save as file… have something to act on. */
+  let codesShown = false;
+  ipcMain.handle("unlock:copy", (event) => {
+    if (!fromOverlay(event) || !codesShown || !going) return;
+    clipboard.writeText(codesAsText(going));
+  });
+  ipcMain.handle("unlock:save", async (event) => {
+    if (!fromOverlay(event) || !codesShown || !going || !overlay) return;
+    // The member chooses where; nothing is written without that choice.
+    const chosen = await dialog.showSaveDialog(overlay, { title: "Save your recovery codes", defaultPath: "SageFin recovery codes.txt", filters: [{ name: "Text", extensions: ["txt"] }] });
+    if (chosen.canceled || !chosen.filePath || !going) return;
+    writeFileSync(chosen.filePath, codesAsText(going), { flag: "w" });
+  });
 
   /** @param {BrowserWindow} parent */
   function openOverlay(parent) {
@@ -241,10 +265,63 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
    * @param {import("../lib/private-mode.mjs").PromptKind} what
    * @param {import("../lib/private-mode.mjs").LogEntry["outcome"]} outcome
    * @param {string | null} code
+   * @param {string} [reason]  Which step failed, and the error's name, when SageFin did not refuse.
    */
-  function record(what, outcome, code) {
-    state.log = logged(state.log, { at: new Date().toISOString(), what, outcome, code });
+  function record(what, outcome, code, reason) {
+    state.log = logged(state.log, { at: new Date().toISOString(), what, outcome, code, ...(reason ? { reason } : {}) });
     save();
+  }
+
+  /**
+   * An error that would otherwise vanish: its step and name go to the log entry, its message (cut
+   * short) to the console. Returns the reason for the entry. Nothing here touches a key or a token.
+   * @param {string} step
+   * @param {unknown} error
+   */
+  function failed(step, error) {
+    const reason = failureReason(step, error);
+    const message = error && typeof error === "object" ? String(/** @type {any} */ (error).message ?? "").slice(0, 200) : "";
+    console.warn(`[private-mode] ${reason}${message ? ` - ${message}` : ""}`);
+    return reason;
+  }
+
+  /**
+   * Removed from the household, or the household is no longer private: this computer forgets that
+   * it held a key, and both menus stop offering what needs one.
+   */
+  function forgetHolding() {
+    delete state.holdings[site().key];
+    save();
+    changed();
+    void refreshStanding();
+  }
+
+  /**
+   * What the signed-in household last said of itself, per site, for the menus. Nothing is cached
+   * across a sign-out or an error: a failed read is `unknown`, and the menus offer nothing.
+   * @type {{ key: string, standing: "standard" | "private" | "unknown", locked: boolean } | null}
+   */
+  let standingNow = null;
+  let reading = false;
+
+  async function refreshStanding() {
+    const win = window();
+    if (!win || reading) return;
+    reading = true;
+    const key = site().key;
+    try {
+      const answer = await api(win).get("/private/status").catch(() => null);
+      const next = { key, standing: householdStanding(answer), locked: lockedForThisWindow(answer) };
+      const same = standingNow && standingNow.key === next.key && standingNow.standing === next.standing && standingNow.locked === next.locked;
+      standingNow = next;
+      if (!same) changed();
+      if (resumeGoingPrivate && next.standing === "standard") {
+        resumeGoingPrivate = false;
+        void offerGoingPrivate();
+      }
+    } finally {
+      reading = false;
+    }
   }
 
   /** @param {"full" | "sync"} purpose */
@@ -275,11 +352,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       try {
         const done = await unlockHere({ api: api(win), keys: keys(), holding, purpose });
         record(what, done.outcome, done.code);
-        if (done.code === "unknown_holder") {
-          // Removed from another device: this computer forgets that it held a key.
-          delete state.holdings[site().key];
-          save();
-        }
+        if (forgetsHolding(done.code)) forgetHolding();
         if (done.outcome === "done") {
           overlay?.close();
           if (purpose === "full") win.webContents.reload();
@@ -345,6 +418,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
           state.holdings[site().key] = holdingOf(enrolment);
           save();
           changed();
+          void refreshStanding();
           record("enrol", "done", null);
           await offerUnlock("full");
         } else if (looked.show === "ended" || looked.show === "mismatch") {
@@ -381,6 +455,29 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
   const DESKTOP_ONLY =
     "With no phone, SageFin then opens only in SageFin Desktop's window, on a computer that holds the key, and never in a browser. There are no phone notifications, and bank syncs wait until you unlock here. You can add a phone or another computer later.";
 
+  /** The member was going private when SageFin asked for a recent sign-in: after signing in again, the flow starts again. */
+  let resumeGoingPrivate = false;
+
+  /**
+   * Signs out of this site in the main window and shows its sign-in. Each site has its own browser
+   * profile, so clearing it signs out of this site and no other. The sign-in the member does next
+   * is recent, which is what the change asked for.
+   * @param {BrowserWindow} win
+   */
+  async function signOutAndBack(win) {
+    resumeGoingPrivate = true;
+    standingNow = null;
+    overlay?.close();
+    try {
+      await win.webContents.session.clearStorageData();
+    } catch {
+      // The sign-in page still loads; a session that stayed is signed out from the page's own menu.
+    }
+    changed();
+    await win.loadURL(`${site().origin}/sign-in`);
+    showWindow();
+  }
+
   async function offerGoingPrivate() {
     const win = window();
     const store = keys();
@@ -401,6 +498,15 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       show({ ...intro, button: null, said: notYet(eligible.reasons) });
       return true;
     }
+
+    /** Continue would only be refused again, so it is replaced by the action that fixes it. @param {object} view */
+    const offerSignIn = (view) => {
+      onOther = null;
+      show({ ...view, button: "Sign out and sign in again", said: REFUSED.sign_in_again });
+      onGo = async () => {
+        await signOutAndBack(win);
+      };
+    };
 
     const showFinal = () => {
       onOther = null;
@@ -423,16 +529,18 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
         let done;
         try {
           done = await finishGoingPrivate({ api: api(win), keys: store, going: g, name: hostname(), tokens });
-        } catch {
-          done = { outcome: "failed", code: null };
+        } catch (error) {
+          done = { outcome: "failed", code: null, reason: failed("go-private", error) };
         } finally {
           prompting = false;
         }
-        record("goPrivate", done.outcome, "code" in done ? done.code : null);
+        if (done.outcome === "failed" && "reason" in done && done.reason) console.warn(`[private-mode] ${done.reason}`);
+        record("goPrivate", done.outcome, "code" in done ? done.code : null, "reason" in done ? done.reason : undefined);
         if (done.outcome === "done") {
           state.holdings[site().key] = done.holding;
           save();
           changed();
+          void refreshStanding();
           forgetGoingPrivate(g);
           going = null;
           win.webContents.reload();
@@ -440,7 +548,8 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
         } else if (done.outcome === "cancelled") {
           show({ ...view, said: "Your household is not private yet. Press Make private to try again." });
         } else {
-          show({ ...view, said: (done.code && REFUSED[done.code]) || "That didn't work, and your household is not private yet. Try again." });
+          if (done.code === "sign_in_again") return offerSignIn(view);
+          show({ ...view, said: (done.code && REFUSED[done.code]) || `That didn't work${failedSaying("reason" in done ? done.reason : undefined)}, and your household is not private yet. Try again.` });
         }
       };
     };
@@ -454,7 +563,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
         lead: "If this computer is lost or stops working, a recovery code is the only other way into your household. Without this computer and your codes, nobody can open it, SageFin included. Write all four down, and keep them somewhere safe away from this computer.",
         codes: codeTexts(g),
         button: "I've written them down",
-        fine: "Each code works once. They are shown only now: SageFin never sees them, and this computer does not keep them.",
+        fine: "Each code works once. They are shown only now: SageFin never sees them, and this computer does not keep them. If you copy or save them, keep that somewhere safe, away from this computer, and not in a place others can read.",
       });
       onGo = async () => showConfirm();
     };
@@ -487,11 +596,13 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       let begun;
       try {
         begun = await beginGoingPrivate({ api: api(win), keys: store });
-      } catch {
+      } catch (error) {
+        failed("begin-private", error);
         begun = { refused: null };
       }
       if (!("going" in begun)) {
         record("goPrivate", "refused", begun.refused);
+        if (begun.refused === "sign_in_again") return offerSignIn(intro);
         show({ ...intro, said: begun.refused === "not_eligible" ? notYet(begun.reasons) : (begun.refused && REFUSED[begun.refused]) || "That didn't work, and nothing was changed. Try again." });
         return;
       }
@@ -534,7 +645,8 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       let begun;
       try {
         begun = await beginApproving({ api: api(win), holding, addId });
-      } catch {
+      } catch (error) {
+        failed("begin-add", error);
         begun = { refused: null };
       }
       if (!("approving" in begun)) {
@@ -591,22 +703,20 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
           let done;
           try {
             done = await approveAdding({ api: api(win), keys: store, holding, approving });
-          } catch {
-            done = { outcome: "failed", code: null };
+          } catch (error) {
+            done = { outcome: "failed", code: null, reason: failed("add-device", error) };
           } finally {
             prompting = false;
           }
-          record("addDevice", done.outcome, done.code);
+          record("addDevice", done.outcome, done.code, "reason" in done ? done.reason : undefined);
           if (done.outcome === "done") {
             onGo = null;
             show({ title: "Added", lead: `“${name}” now holds your household's key. It finishes by unlocking once, on its own screen.`, button: null, cancel: "Done" });
           } else if (done.outcome === "cancelled") {
             show({ ...view, said: "Nothing was added. Press Add to try again." });
-          } else if (done.code === "unknown_holder") {
-            delete state.holdings[site().key];
-            save();
-            changed();
-            stopped(REFUSED.unknown_holder);
+          } else if (forgetsHolding(done.code)) {
+            forgetHolding();
+            stopped(REFUSED[done.code ?? ""] ?? REFUSED.unknown_holder);
           } else {
             const said = done.code === "household_file_locked" ? "Unlock SageFin in this window first (Unlock SageFin… in the menu), then add the device." : done.code && REFUSED[done.code];
             show({ ...view, said: said || "That didn't work, and nothing was added. Try again." });
@@ -688,19 +798,15 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
           prompting = true;
         },
       });
-    } catch {
-      asked = { outcome: began ? "failed" : "not-now", unlock: began ? { outcome: "failed", code: null } : null };
+    } catch (error) {
+      asked = { outcome: began ? "failed" : "not-now", unlock: began ? { outcome: "failed", code: null, reason: failed("page-unlock", error) } : null };
     } finally {
       if (began) prompting = false;
     }
     const { outcome, unlock } = asked;
     if (!unlock) return outcome;
-    record("unlock", unlock.outcome, unlock.code);
-    if (unlock.code === "unknown_holder") {
-      // Removed from another device: this computer forgets that it held a key.
-      delete state.holdings[site().key];
-      save();
-    }
+    record("unlock", unlock.outcome, unlock.code, unlock.reason);
+    if (forgetsHolding(unlock.code)) forgetHolding();
     // After the answer has gone back to the page, which the reload replaces.
     if (outcome === "unlocked") setImmediate(() => win.webContents.reload());
     return outcome;
@@ -726,7 +832,11 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     /** The window's page started loading again: what the last load said no longer counts. */
     pageLoaded() {
       pageLoads += 1;
+      void refreshStanding();
     },
+
+    /** Reads the signed-in household's state again: on sign-in, a site switch, a page load. Rebuilds the menus if it changed. */
+    refreshStanding,
 
     /** Whether this computer could be added at all: a security chip and the prompt that guards it. */
     canHoldKey,
@@ -765,12 +875,13 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     menuItems() {
       /** @type {Electron.MenuItemConstructorOptions[]} */
       const items = [];
-      if (state.holdings[site().key]) {
-        items.push({ label: "Unlock SageFin…", click: () => void offerUnlock("full") });
-        items.push({ label: "Add a Device…", click: () => void offerAddDevice() });
-      } else if (holderTokens(process.platform, keys())) {
-        items.push({ label: "Use This Computer to Unlock SageFin…", click: () => void offerEnrolment() });
-        items.push({ label: "Make This Household Private…", click: () => void offerGoingPrivate() });
+      const here = standingNow && standingNow.key === site().key ? standingNow : null;
+      const choices = menuChoices({ standing: here?.standing ?? "unknown", locked: here?.locked ?? false, holdsAKey: Boolean(state.holdings[site().key]), canHoldKey: canHoldKey() });
+      for (const choice of choices) {
+        if (choice === "unlock") items.push({ label: "Unlock SageFin…", click: () => void offerUnlock("full") });
+        if (choice === "add-device") items.push({ label: "Add a Device…", click: () => void offerAddDevice() });
+        if (choice === "enrol") items.push({ label: "Use This Computer to Unlock SageFin…", click: () => void offerEnrolment() });
+        if (choice === "go-private") items.push({ label: "Make This Household Private…", click: () => void offerGoingPrivate() });
       }
       return items;
     },
@@ -807,6 +918,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
      */
     onCheckIn(privateMode) {
       const key = site().key;
+      void refreshStanding();
       const { notify, state: next } = syncNotice(state.notices[key] ?? NO_NOTICES, privateMode, Date.now(), { holdsAKey: Boolean(state.holdings[key]) });
       state.notices[key] = next;
       save();

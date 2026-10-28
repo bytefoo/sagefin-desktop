@@ -411,6 +411,9 @@ async function start() {
   main.window.webContents.once("did-finish-load", () => {
     if (main?.window.isVisible()) void privateMode?.onWindowShown();
   });
+  // The menus follow the signed-in household: read it on every load and in-page navigation (a sign-in is one).
+  main.window.webContents.on("did-finish-load", () => void privateMode?.refreshStanding());
+  main.window.webContents.on("did-navigate-in-page", () => void privateMode?.refreshStanding());
   refreshMenus();
 
   // Whatever was saved and not sent before the app last closed.
