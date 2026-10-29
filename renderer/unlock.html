@@ -22,9 +22,19 @@
       <canvas id="qr" class="qr" role="img" aria-label="A QR code for your phone to scan" hidden></canvas>
       <p id="code" class="card" hidden></p>
       <p id="check" class="card" hidden></p>
+      <ol id="codes" class="card codes" hidden></ol>
+      <p id="ask-row" class="ask" hidden>
+        <label for="ask" id="ask-label"></label>
+        <input id="ask" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="200" />
+      </p>
+      <p id="codes-actions" hidden>
+        <button id="copy" class="btn-secondary" type="button">Copy codes</button>
+        <button id="save" class="btn-secondary" type="button">Save as file…</button>
+      </p>
       <p id="said" class="alert-danger" hidden></p>
       <p>
         <button id="go" class="btn-primary" type="button" hidden></button>
+        <button id="other" class="btn-secondary" type="button" hidden></button>
         <button id="cancel" class="btn-secondary" type="button">Not now</button>
       </p>
       <p id="fine" class="fine"></p>
