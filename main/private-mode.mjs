@@ -51,6 +51,8 @@ import {
   failureReason,
   failedSaying,
   householdStanding,
+  statusHouseholdId,
+  holdingIsForAnotherHousehold,
   menuChoices,
   lockedForThisWindow,
   logged,
@@ -300,10 +302,23 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
   /**
    * What the signed-in household last said of itself, per site, for the menus. Nothing is cached
    * across a sign-out or an error: a failed read is `unknown`, and the menus offer nothing.
-   * @type {{ key: string, standing: "standard" | "private" | "unknown", locked: boolean } | null}
+   * @type {{ key: string, standing: "standard" | "private" | "unknown", locked: boolean, householdId: string | null } | null}
    */
   let standingNow = null;
   let reading = false;
+
+  /**
+   * The key this computer holds for the household on the site shown, unless SageFin's last status
+   * says the signed-in person is now in a different household: then this computer holds no key for
+   * the household they are in, so the menus offer what suits that one and nothing tries to unlock
+   * with the old key. The old holding stays in the store; the old household may still exist.
+   * @param {string | null} [statusHousehold]  A status just read; otherwise the last one.
+   */
+  function heldHere(statusHousehold) {
+    const holding = state.holdings[site().key];
+    const said = statusHousehold !== undefined ? statusHousehold : standingNow && standingNow.key === site().key ? standingNow.householdId : null;
+    return holdingIsForAnotherHousehold(holding, said) ? undefined : holding;
+  }
 
   async function refreshStanding() {
     const win = window();
@@ -314,8 +329,8 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       const answer = await api(win).get("/private/status").catch(() => null);
       // Their household is gone, or they were removed from it: the key opens nothing.
       if (inNoHousehold(answer) && state.holdings[key]) forgetHolding();
-      const next = { key, standing: householdStanding(answer), locked: lockedForThisWindow(answer) };
-      const same = standingNow && standingNow.key === next.key && standingNow.standing === next.standing && standingNow.locked === next.locked;
+      const next = { key, standing: householdStanding(answer), locked: lockedForThisWindow(answer), householdId: statusHouseholdId(answer) };
+      const same = standingNow && standingNow.key === next.key && standingNow.standing === next.standing && standingNow.locked === next.locked && standingNow.householdId === next.householdId;
       standingNow = next;
       if (!same) changed();
       if (resumeGoingPrivate && next.standing === "standard") {
@@ -330,7 +345,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
   /** @param {"full" | "sync"} purpose */
   async function offerUnlock(purpose) {
     const win = window();
-    const holding = state.holdings[site().key];
+    const holding = heldHere();
     if (!win || !holding) return false;
     openOverlay(win);
     const what = purpose === "sync" ? "sync" : "unlock";
@@ -485,7 +500,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     const win = window();
     const store = keys();
     const tokens = holderTokens(process.platform, store);
-    if (!win || !tokens || state.holdings[site().key]) return false;
+    if (!win || !tokens || heldHere()) return false;
     openOverlay(win);
     const intro = {
       title: "Make this household private",
@@ -623,7 +638,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
   async function offerAddDevice() {
     const win = window();
     const store = keys();
-    const holding = state.holdings[site().key];
+    const holding = heldHere();
     if (!win || !holding) return false;
     openOverlay(win);
     const intro = {
@@ -781,7 +796,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
    */
   async function unlockForPage(householdId) {
     const win = window();
-    const holding = state.holdings[site().key];
+    const holding = heldHere();
     if (!win) return "not-now";
     const ask = pageAsk();
     let began = false;
@@ -819,7 +834,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
 
   return {
     /** Whether this computer holds a key of the household on the site shown. */
-    holdsAKey: () => Boolean(state.holdings[site().key]),
+    holdsAKey: () => Boolean(heldHere()),
 
     /**
      * The page's one yes or no: does this computer hold a key of the household it names? Only the
@@ -829,7 +844,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     pageAsksWhetherItHoldsKey(/** @type {unknown} */ householdId) {
       offeredOnLoad = pageLoads;
       for (const wake of [...offerWaiters]) wake();
-      return holdsKeyFor(state.holdings[site().key], householdId);
+      return holdsKeyFor(heldHere(), householdId);
     },
 
     /** The window's page started loading again: what the last load said no longer counts. */
@@ -852,25 +867,25 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
      * app from before "unlock-here" calls; remove it once the web app no longer does.
      */
     async pageAsksToUnlock() {
-      if (!state.holdings[site().key] || !pageMayAsk()) return false;
+      if (!heldHere() || !pageMayAsk()) return false;
       return offerUnlock("full");
     },
 
     /** The page asked to open Make This Household Private…, as the menu item does. It only opens this app's window. */
     async pageAsksToGoPrivate() {
-      if (state.holdings[site().key] || !canHoldKey() || !pageMayAsk()) return false;
+      if (heldHere() || !canHoldKey() || !pageMayAsk()) return false;
       return offerGoingPrivate();
     },
 
     /** The page asked to open Add a Device…, as the menu item does. It only opens this app's window. */
     async pageAsksToAddADevice() {
-      if (!state.holdings[site().key] || !pageMayAsk()) return false;
+      if (!heldHere() || !pageMayAsk()) return false;
       return offerAddDevice();
     },
 
     /** The page asked to start adding this computer, as the menu item does. */
     async pageAsksToAdd() {
-      if (state.holdings[site().key] || !canHoldKey() || !pageMayAsk()) return false;
+      if (heldHere() || !canHoldKey() || !pageMayAsk()) return false;
       return offerEnrolment();
     },
 
@@ -879,7 +894,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       /** @type {Electron.MenuItemConstructorOptions[]} */
       const items = [];
       const here = standingNow && standingNow.key === site().key ? standingNow : null;
-      const choices = menuChoices({ standing: here?.standing ?? "unknown", locked: here?.locked ?? false, holdsAKey: Boolean(state.holdings[site().key]), canHoldKey: canHoldKey() });
+      const choices = menuChoices({ standing: here?.standing ?? "unknown", locked: here?.locked ?? false, holdsAKey: Boolean(heldHere()), canHoldKey: canHoldKey() });
       for (const choice of choices) {
         if (choice === "unlock") items.push({ label: "Unlock SageFin…", click: () => void offerUnlock("full") });
         if (choice === "add-device") items.push({ label: "Add a Device…", click: () => void offerAddDevice() });
@@ -897,9 +912,12 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
       const win = window();
       if (!win || !state.holdings[site().key]) return;
       const shownAt = Date.now();
-      const locked = lockedForThisWindow(await api(win).get("/private/status").catch(() => null));
+      const answer = await api(win).get("/private/status").catch(() => null);
+      const locked = lockedForThisWindow(answer);
+      // Signed in to another household than the key is for: nothing here to unlock.
+      if (!heldHere(statusHouseholdId(answer))) return;
       for (;;) {
-        const next = unlockWindowOnShow({ holdsAKey: Boolean(state.holdings[site().key]), locked, pageOffers: offeredOnLoad === pageLoads, waitedMs: Date.now() - shownAt });
+        const next = unlockWindowOnShow({ holdsAKey: Boolean(heldHere()), locked, pageOffers: offeredOnLoad === pageLoads, waitedMs: Date.now() - shownAt });
         if (next === "open") void offerUnlock("full");
         if (next !== "wait") return;
         await new Promise((resolve) => {
@@ -922,7 +940,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
     onCheckIn(privateMode) {
       const key = site().key;
       void refreshStanding();
-      const { notify, state: next } = syncNotice(state.notices[key] ?? NO_NOTICES, privateMode, Date.now(), { holdsAKey: Boolean(state.holdings[key]) });
+      const { notify, state: next } = syncNotice(state.notices[key] ?? NO_NOTICES, privateMode, Date.now(), { holdsAKey: Boolean(heldHere()) });
       state.notices[key] = next;
       save();
       if (!notify || !Notification.isSupported()) return;
