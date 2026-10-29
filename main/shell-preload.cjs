@@ -4,7 +4,47 @@
 //
 // CommonJS because a sandboxed preload cannot be an ES module, which is also why this list is a
 // copy of lib/site.mjs's. lib/site.test.mjs fails if the two differ.
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webFrame } = require("electron");
+
+// Passkey autofill. Chromium says a conditional WebAuthn request is possible, but Electron has no
+// autofill dropdown to show it in, so a sign-in page that starts one on load (Clerk's, with "Allow
+// autofill" on) gets the operating system's whole "Choose a passkey" window at once. Saying
+// "unavailable" in the page makes it keep its own "Use passkey" button, which asks for a passkey
+// explicitly and still works. Macs have the same missing dropdown, so this is not limited to Windows.
+//
+// It runs in the page's own world, because that is where the page looks, by webFrame.executeJavaScript
+// from this isolated preload: contextIsolation and the sandbox stay on, and the page gets nothing
+// of ours. A sandboxed preload cannot import, so lib/passkey-autofill.test.mjs reads this function
+// out of this file between its markers and tests it.
+// <passkey-autofill>
+const patchPasskeyAutofill = (PublicKeyCredential) => {
+  if (typeof PublicKeyCredential !== "function") return;
+  const define = (name, value) => {
+    try {
+      Object.defineProperty(PublicKeyCredential, name, { value, configurable: true, writable: true, enumerable: false });
+    } catch {
+      // A frame that will not take it keeps what it had.
+    }
+  };
+  if ("isConditionalMediationAvailable" in PublicKeyCredential) {
+    define("isConditionalMediationAvailable", function isConditionalMediationAvailable() {
+      return Promise.resolve(false);
+    });
+  }
+  const original = PublicKeyCredential.getClientCapabilities;
+  if (typeof original === "function") {
+    define("getClientCapabilities", async function getClientCapabilities() {
+      const capabilities = await original.apply(PublicKeyCredential, arguments);
+      if (capabilities && typeof capabilities === "object") return { ...capabilities, conditionalGet: false };
+      return capabilities;
+    });
+  }
+};
+// </passkey-autofill>
+
+if (typeof webFrame?.executeJavaScript === "function") {
+  webFrame.executeJavaScript(`(${patchPasskeyAutofill.toString()})(globalThis.PublicKeyCredential)`).catch(() => {});
+}
 
 const SAGEFIN_ORIGINS = ["https://my.sagefin.app", "https://my-test.sagefin.app", "http://localhost:3000"];
 
