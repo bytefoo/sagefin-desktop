@@ -5,6 +5,7 @@
 import { app, BrowserWindow, Menu, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { accelerators, canGo, fromAppCommand, fromSwipe } from "../lib/history-nav.mjs";
 import { SITES, decideNavigation, decideWindowOpen, isSite, mainWindowTitle } from "../lib/site.mjs";
 
 const here = import.meta.dirname;
@@ -147,6 +148,22 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
 
     w.webContents.on("did-navigate", () => privateMode.pageLoaded());
 
+    // Back and Forward belong to this window alone (not a retailer's, not a pop-up). The menu's
+    // enabled state follows the history, so the menu is rebuilt whenever the history changes.
+    w.on("app-command", (_event, command) => {
+      const direction = fromAppCommand(command);
+      if (direction) go(w, direction);
+    });
+    w.on("swipe", (_event, swipe) => {
+      const direction = fromSwipe(swipe);
+      if (direction) go(w, direction);
+    });
+    const historyChanged = () => {
+      if (w === win) Menu.setApplicationMenu(menu());
+    };
+    w.webContents.on("did-navigate", historyChanged);
+    w.webContents.on("did-navigate-in-page", historyChanged);
+
     // The page titles the window. Showing any SageFin but production, the title also says which.
     w.on("page-title-updated", (event, title) => {
       const wanted = mainWindowTitle(title, s);
@@ -215,6 +232,25 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
     return w;
   }
 
+  /** @param {BrowserWindow} w @param {import("../lib/history-nav.mjs").Direction} direction */
+  function go(w, direction) {
+    if (w.isDestroyed()) return;
+    const history = w.webContents.navigationHistory;
+    if (!canGo(history, direction)) return;
+    if (direction === "back") history.goBack();
+    else history.goForward();
+  }
+
+  /** @param {import("../lib/history-nav.mjs").Direction} direction @returns {Electron.MenuItemConstructorOptions} */
+  function historyItem(direction) {
+    return {
+      label: direction === "back" ? "Back" : "Forward",
+      accelerator: accelerators(process.platform)[direction],
+      enabled: !win.isDestroyed() && canGo(win.webContents.navigationHistory, direction),
+      click: () => go(win, direction),
+    };
+  }
+
   /** @param {import("../lib/site.mjs").Site} next */
   function switchSite(next) {
     if (next.key === site.key) return;
@@ -236,7 +272,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
       { role: "editMenu" },
       {
         label: "View",
-        submenu: [{ role: "reload" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }],
+        submenu: [historyItem("back"), historyItem("forward"), { type: "separator" }, { role: "reload" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }],
       },
       {
         label: "Retailers",
