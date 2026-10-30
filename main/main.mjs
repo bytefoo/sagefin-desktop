@@ -18,10 +18,10 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
-import { LIST_KINDS, dropOlderThan, dropRead, enqueue, howFarBackDate, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, startOver, stripText } from "../lib/history.mjs";
+import { LIST_KINDS, beginSetup, dropOlderThan, dropRead, enqueue, howFarBackDate, nextToOpen, noteCharges, noteSetup, outdatedSetupSentence, reachedReadCharge, readsBackTo, settledListing, setupOutdated, startOver, stripText } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { NO_OWNER, canComeBack, createOwners, ownerOf, takeOwnership } from "../lib/owner.mjs";
-import { adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
+import { MAX_ASKED, adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
 import { MAX_LIST_PAGES_PER_RUN, MAX_ORDERS_PER_RUN, PAUSE_BETWEEN_ORDERS_MS, TROUBLE_RETRY_AFTER_MS, createSyncStates, nextScheduledRunAt, noteOrderPage, notePause, orderPageVerdict, scheduleEveryMs, scheduleStopped, scheduledRunDue, showWindowForMemberSync, troubleStatus } from "../lib/sync-plan.mjs";
 import { CHECK_IN_EVERY_MS, checkIn, refusalLifted, report, scheduleAllowedBy, shouldStartRequested, standingAnswerFor, waitingSentence } from "../lib/check-in.mjs";
 import { keyPaths, keyPattern } from "../lib/key-paths.mjs";
@@ -1214,8 +1214,11 @@ async function runSync(retailer, { visible, by }) {
     }
 
     // The next twenty on the to-do list, newest first, whichever run or setup put them there. Asked
-    // about first: another computer may have read some since they were listed.
-    await learnWhatWasRead(nextToOpen(state.queue, MAX_ORDERS_PER_RUN));
+    // about first: another computer may have read some since they were listed, or this one before
+    // Start over. As many as one question carries, not only the twenty: asked about only those, the
+    // twenty behind every one SageFin knew were opened unasked, so a history set up again after Start
+    // over opened twenty orders SageFin already held on every run until it reached the new ones.
+    await learnWhatWasRead(nextToOpen(state.queue, MAX_ASKED));
     if (win.isDestroyed()) return finish("The window was closed before the sync finished.");
     const todo = nextToOpen(state.queue, MAX_ORDERS_PER_RUN);
     if (logPages) {
@@ -1304,7 +1307,8 @@ async function runSync(retailer, { visible, by }) {
         (left > 0 ? ` ${left} still to read.` : "") +
         (troubled > 0 ? ` ${troubled} could not be read while ${retailer.name} was having technical issues, and ${troubled === 1 ? "is" : "are"} read next time.` : "") +
         (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : "") +
-        (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : ""),
+        (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : "") +
+        (setupOutdated(state.setup, retailer.listingVersion ?? 1) ? ` ${outdatedSetupSentence(retailer.name, state.setup)}` : ""),
       { finished: true, orders: read },
     );
   } catch (error) {
@@ -1551,8 +1555,10 @@ function setUpHistory(code) {
     return false;
   }
   const state = syncStates.get(site.key, household(), code);
-  if (state.setup.status !== "started") {
-    state.setup = { ...state.setup, status: "started", startedAt: new Date().toISOString(), doneAt: null };
+  // A setup listed by an older reading of the list starts its count again (lib/history.mjs).
+  const begun = beginSetup(state.setup, retailer.listingVersion ?? 1, new Date());
+  if (begun !== state.setup) {
+    state.setup = begun;
     syncStates.set(site.key, household(), code, state);
   }
   settingUp.add(code);

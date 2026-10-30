@@ -166,6 +166,16 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   never opened (its date box starts at how far back the history reads now: the last day given, or
   the oldest date setup reached, which the bridge also reports as `readsBackTo`); *start over* forgets the to-do list and every order and charge read here, and opens
   setup. None of them removes anything from SageFin: an order already there is removed only there.
+- **A version that lists more asks for setup again.** A sync stops at the first charge it has read
+  before, so an order an older version left out of the list (at Amazon, every digital order before
+  v0.1.88) sits below charges already read, where no sync reaches. Its charges reached SageFin; its
+  page never went on the to-do list. Such a setup is outdated (`listingVersion` in
+  `lib/retailers.mjs`): each sync's result says to set the history up again, back as far as before,
+  and that setup starts its count from nothing, so the strip says the bank history is covered only
+  once the member's scrolling reaches it again. It skips what was read, and puts on the to-do list
+  what the older version left out. Start over is not needed, and costs no more: before opening
+  anything a sync asks SageFin about as much of the to-do list as one question carries, so orders
+  this computer read before Start over are skipped rather than opened again.
 
 ## Syncing a retailer
 
