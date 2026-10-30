@@ -5,6 +5,8 @@ const cannotSave = document.getElementById("cannot-save");
 
 /** Retailers whose "Set up history again" choices are open. */
 const resetOpen = new Set();
+/** Retailers whose Details are open, so a redraw does not fold them away. */
+const detailsOpen = new Set();
 
 function describe(retailer) {
   const parts = [];
@@ -27,7 +29,7 @@ const today = () => {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 };
 
-/** The history line: how far setup got, and what is still to read. */
+/** The history, in full, for Details: how far setup got, and what is still to read. */
 function describeHistory(history) {
   if (history.settingUp) return "Setting up its history now, in its window.";
   const parts = [];
@@ -64,21 +66,16 @@ function button(text, className, onClick) {
   return b;
 }
 
-/** Setting up the history, and the two ways of setting it up again. */
+/** The row's one action, when it needs one (lib/card.mjs): each opens setup in its own window. */
+const ACTION_TEXT = { "set-up": "Set up history", "carry-on": "Carry on setting up", "set-up-again": "Set up history again" };
+
+/** The ways of setting a finished history up again, under Details. */
 function historyActions(retailer) {
   const history = retailer.history;
   const box = document.createElement("div");
   box.className = "history-actions";
-  if (history.settingUp || retailer.syncing) return box;
+  if (history.settingUp || retailer.syncing || history.setup !== "done") return box;
 
-  if (history.setup === "never") {
-    box.append(button("Set up history", "btn-secondary", () => void window.desktop.setUpHistory(retailer.code)));
-    return box;
-  }
-  if (history.setup === "started") {
-    box.append(button("Carry on setting up", "btn-secondary", () => void window.desktop.setUpHistory(retailer.code)));
-    return box;
-  }
   if (!resetOpen.has(retailer.code)) {
     box.append(button("Set up history again", "btn-secondary", () => {
       resetOpen.add(retailer.code);
@@ -154,16 +151,34 @@ async function render() {
       const name = document.createElement("div");
       name.className = "retailer-name";
       name.textContent = retailer.name;
-      const detail = document.createElement("div");
-      detail.className = "retailer-detail";
-      detail.textContent = describe(retailer);
-      label.append(name, detail);
-      if (retailer.syncable && retailer.history) {
-        const history = document.createElement("div");
-        history.className = "retailer-detail";
-        history.textContent = describeHistory(retailer.history);
-        label.append(history);
+      // One line: where it stands. An app's status from before the line was made has none, and
+      // the row then says what it saved.
+      const line = document.createElement("div");
+      line.className = "retailer-detail";
+      line.textContent = retailer.card?.line ?? describe(retailer);
+      label.append(name, line);
+
+      // Everything else the row knows, folded away: pages saved, the last sync, the history.
+      const details = document.createElement("details");
+      details.className = "retailer-more";
+      details.open = detailsOpen.has(retailer.code);
+      details.addEventListener("toggle", () => {
+        if (details.open) detailsOpen.add(retailer.code);
+        else detailsOpen.delete(retailer.code);
+      });
+      const summary = document.createElement("summary");
+      summary.className = "fine";
+      summary.textContent = "Details";
+      details.append(summary);
+      for (const text of [describe(retailer), retailer.lastSync ? `Last sync: ${retailer.lastSync}` : null, retailer.syncable && retailer.history ? describeHistory(retailer.history) : null]) {
+        if (!text) continue;
+        const p = document.createElement("p");
+        p.className = "retailer-detail";
+        p.textContent = text;
+        details.append(p);
       }
+      if (retailer.syncable && retailer.history) details.append(historyActions(retailer));
+      label.append(details);
 
       const open = document.createElement("button");
       open.type = "button";
@@ -171,9 +186,12 @@ async function render() {
       open.textContent = retailer.open ? `Show ${retailer.name}` : `Open ${retailer.name}`;
       open.addEventListener("click", () => window.desktop.open(retailer.code));
 
-      item.append(avatar, label, open);
-      // Under the row, the width of the window: a narrow window wraps the buttons, never cuts them.
-      if (retailer.syncable && retailer.history) item.append(historyActions(retailer));
+      const action = retailer.card?.action;
+      if (action && ACTION_TEXT[action]) {
+        item.append(avatar, label, button(ACTION_TEXT[action], "btn-secondary", () => void window.desktop.setUpHistory(retailer.code)), open);
+      } else {
+        item.append(avatar, label, open);
+      }
       return item;
     }),
   );

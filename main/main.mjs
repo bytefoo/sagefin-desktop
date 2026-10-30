@@ -18,7 +18,8 @@ import { asCredential, createCredentialStore } from "../lib/credential-store.mjs
 import { MAX_CAPTURE_BYTES, stripHtml } from "../lib/html.mjs";
 import { createAccountNames } from "../lib/account-names.mjs";
 import { RETAILERS, gatherListed, retailerByCode, windowTitle } from "../lib/retailers.mjs";
-import { LIST_KINDS, beginSetup, dropOlderThan, dropRead, enqueue, howFarBackDate, nextToOpen, noteCharges, noteSetup, outdatedSetupSentence, reachedReadCharge, readsBackTo, settledListing, setupOutdated, startOver, stripText } from "../lib/history.mjs";
+import { cardSummary } from "../lib/card.mjs";
+import { LIST_KINDS, beginSetup, closeSetup, dropOlderThan, dropRead, enqueue, howFarBackDate, nextToOpen, noteCharges, noteSetup, reachedReadCharge, readsBackTo, settledListing, setupGoal, setupOutdated, startOver, stripText, withoutOutdatedSentence } from "../lib/history.mjs";
 import { resolveSite } from "../lib/site.mjs";
 import { NO_OWNER, canComeBack, createOwners, ownerOf, takeOwnership } from "../lib/owner.mjs";
 import { MAX_ASKED, adoptRead, askHeld, orderKey, ordersToAskAbout, readKeys, sageFinLostReading, shareRead } from "../lib/read-orders.mjs";
@@ -219,13 +220,7 @@ async function start() {
   }
 
   ipcMain.handle("desktop:status", (event) => (fromHome(event) ? status() : null));
-  ipcMain.handle("desktop:open", (event, code) => {
-    if (!fromHome(event) || typeof code !== "string") return false;
-    const retailer = retailerByCode(code);
-    if (!retailer) return false;
-    openRetailer(retailer);
-    return true;
-  });
+  ipcMain.handle("desktop:open", (event, code) => fromHome(event) && typeof code === "string" && openForMember(code));
   // Setting up a retailer's history, and the two ways of setting it up again.
   ipcMain.handle("desktop:set-up-history", (event, code) => fromHome(event) && typeof code === "string" && setUpHistory(code));
   ipcMain.handle("desktop:change-how-far-back", (event, code, from) =>
@@ -298,12 +293,7 @@ async function start() {
     onRetailers: () => void openRetailersWindow(),
     retailers: {
       status,
-      open(code) {
-        const retailer = retailerByCode(code);
-        if (!retailer) return false;
-        openRetailer(retailer);
-        return true;
-      },
+      open: (code) => openForMember(code),
       // The member asked for a sync. Its window shows when they may be needed at it, and stays out
       // of the way otherwise (lib/sync-plan.mjs); Open, beside it, shows the window to anyone who
       // wants to watch. It is theirs either way.
@@ -1307,8 +1297,7 @@ async function runSync(retailer, { visible, by }) {
         (left > 0 ? ` ${left} still to read.` : "") +
         (troubled > 0 ? ` ${troubled} could not be read while ${retailer.name} was having technical issues, and ${troubled === 1 ? "is" : "are"} read next time.` : "") +
         (aside > 0 ? ` ${aside} set aside: ${retailer.name} showed no order on ${aside === 1 ? "its page" : "their pages"}.` : "") +
-        (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : "") +
-        (setupOutdated(state.setup, retailer.listingVersion ?? 1) ? ` ${outdatedSetupSentence(retailer.name, state.setup)}` : ""),
+        (waiting > 0 ? ` ${waiting} waiting for the list to show ${waiting === 1 ? "it" : "them"} again: set up history again past ${waiting === 1 ? "it" : "them"}.` : ""),
       { finished: true, orders: read },
     );
   } catch (error) {
@@ -1415,6 +1404,7 @@ function status() {
     uploadNotice: uploadNotice ?? letGoNotice,
     retailers: RETAILERS.map((r) => {
       const mine = records.filter((c) => c.retailer === r.code);
+      const sync = syncStatus(r.code);
       return {
         code: r.code,
         name: r.name,
@@ -1425,7 +1415,9 @@ function status() {
         notice: notices.get(r.code) ?? (updateRequired() ? UPDATE_SENTENCE : waitingSentence(sagefinAnswer(r.code), r.name)),
         lastSentAt: lastSent.get(r.code)?.at ?? null,
         lastSent: lastSent.has(r.code) ? sentSummary(/** @type {import("../lib/uploader.mjs").SentTally} */ (lastSent.get(r.code))) : null,
-        ...syncStatus(r.code),
+        ...sync,
+        // The retailers window's row in one line, and its one action (lib/card.mjs).
+        card: cardSummary({ ...sync, captures: mine.length }),
         ...termsStatus(r),
       };
     }),
@@ -1486,11 +1478,21 @@ function syncStatus(code) {
           // How many no run opens until the list shows them again: kept by an older version without
           // what their address depends on (`relist`, lib/history.mjs).
           waiting: waitingCount(state.queue),
+          // Listed by an older reading of the list, which left orders out that only setting it up
+          // again reaches (`setupOutdated`, lib/history.mjs). The card offers that, and nothing else.
+          outdated: setupOutdated(state.setup, retailerByCode(code)?.listingVersion ?? 1),
+          // How far back setup is going, YYYY-MM-DD: how far it went before, for one begun again, or
+          // where the bank history starts. Null when nothing says.
+          goal: setupGoal(state.setup, stripBank()),
         }
       : null,
     lastSyncAt: state?.lastRunAt ?? null,
     lastSyncBy: state?.lastRunBy ?? null,
-    lastSync: state?.lastResult ?? null,
+    // A result stored by v0.1.89 said to set the history up again; the card says that now.
+    lastSync: withoutOutdatedSentence(state?.lastResult ?? null),
+    // How that run ended: finished, refused, signed_out or stopped (null before it was kept). The
+    // card says "up to date" only after one that finished.
+    lastOutcome: state?.lastOutcome ?? null,
     nextSyncAt: state && scheduleAllowed(code) && scheduleAllowedBy(sagefinAnswer(code)) && !updateRequired() ? nextScheduledRunAt(state, SCHEDULE_EVERY, chosenSchedule(code)) : null,
     // A scheduled run only ever follows one the member started and saw finish, and never one the
     // retailer turned away. Saying "daily" then would promise a run that will not happen.
@@ -1554,6 +1556,14 @@ function setUpHistory(code) {
     tell(code, `Choose whether to save ${retailer.name}'s pages in Settings → Retail sync, then set up its history.`);
     return false;
   }
+  // Already setting up in its window: brought forward where the member got to, not reloaded from
+  // the top, which would lose their place in a list that has no address for it.
+  const open = windows.get(code);
+  if (settingUp.has(code) && open && !open.isDestroyed()) {
+    open.show();
+    open.focus();
+    return true;
+  }
   const state = syncStates.get(site.key, household(), code);
   // A setup listed by an older reading of the list starts its count again (lib/history.mjs).
   const begun = beginSetup(state.setup, retailer.listingVersion ?? 1, new Date());
@@ -1562,11 +1572,29 @@ function setUpHistory(code) {
     syncStates.set(site.key, household(), code, state);
   }
   settingUp.add(code);
+  // Its own window on the history page with the strip, whatever the window showed before: one
+  // already open on Your Orders, or on an order, is moved to the history page.
   const win = openRetailer(retailer, { navigate: false });
   win.showStrip(true);
   const first = retailer.listPageUrl(1);
   void load(win, retailerFixture ? onFixture(first, retailerFixture) : first);
   changed();
+  return true;
+}
+
+/**
+ * Open (or Show) a retailer, as the member presses it. While a setup is under way, which is from Set
+ * up history until Done, that is the setup: the history page with the strip, not the retailer's
+ * start page (Amazon's Your Orders, where nothing setup needs is listed). Otherwise its window.
+ * @param {string} code
+ */
+function openForMember(code) {
+  const retailer = retailerByCode(code);
+  if (!retailer) return false;
+  const setup = syncStates?.get(site.key, household(), code).setup;
+  const underWay = settingUp.has(code) || setup?.status === "started";
+  if (underWay && !syncing.has(code) && retailer.syncs && mayDo(retailer, "saving") && setUpHistory(code)) return true;
+  openRetailer(retailer);
   return true;
 }
 
@@ -1631,10 +1659,17 @@ function stripOwner(event) {
 function stripState(code) {
   const retailer = retailerByCode(code);
   if (!retailer || !syncStates || !settingUp.has(code)) return null;
+  return stripText({ name: retailer.name, setup: syncStates.get(site.key, household(), code).setup, bank: stripBank(), checking: checking.has(code) });
+}
+
+/**
+ * Where the household's bank history starts, as the strip says it: a date SageFin's page gave, or,
+ * with none, that the household is locked. Null when nothing was said.
+ * @returns {import("../lib/history.mjs").BankHistory | null}
+ */
+function stripBank() {
   const given = bankHistories.get(site.key) ?? null;
-  // A date SageFin's page gave is shown; with none, a locked household is said to be locked.
-  const bank = given?.start ? given : lockedSites.get(site.key) ? { start: null, locked: true } : given;
-  return stripText({ name: retailer.name, setup: syncStates.get(site.key, household(), code).setup, bank, checking: checking.has(code) });
+  return given?.start ? given : lockedSites.get(site.key) ? { start: null, locked: true } : given;
 }
 
 /** Tells each open strip to ask again. */
@@ -1758,8 +1793,17 @@ function openRetailer(retailer, { show = true, navigate = true } = {}) {
     windows.delete(retailer.code);
     browsed.delete(retailer.code);
     checking.delete(retailer.code);
-    // Closing the window during setup keeps what it saw and how far it got; the setup is still
-    // started, and setting up again carries on from there.
+    // Closing the window during setup keeps what it saw and how far it got. Once it reached as far
+    // back as the strip asked, that is Done (lib/history.mjs); before, the setup is still started,
+    // and setting up again, or Open, carries on from there.
+    if (settingUp.has(retailer.code) && syncStates) {
+      const state = syncStates.get(site.key, household(), retailer.code);
+      const closed = closeSetup(state.setup, stripBank(), new Date());
+      if (closed !== state.setup) {
+        state.setup = closed;
+        syncStates.set(site.key, household(), retailer.code, state);
+      }
+    }
     settingUp.delete(retailer.code);
     // A window of views does not close its pages by itself.
     if (!page.webContents.isDestroyed()) page.webContents.close();

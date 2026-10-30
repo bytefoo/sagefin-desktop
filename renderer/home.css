@@ -364,3 +364,28 @@ body.strip {
   padding: 0.25rem 0.75rem;
   font-size: var(--type-caption);
 }
+
+/*
+  A retailer's row is one line and its one action; the rest is under Details, which opens in place
+  under the line. The ways of setting a history up again sit inside it, lined up with the line.
+*/
+.card li {
+  flex-wrap: wrap;
+}
+
+.retailer-more {
+  margin-top: 4px;
+}
+
+.retailer-more > summary {
+  cursor: pointer;
+}
+
+.retailer-more > p {
+  margin: 4px 0 0;
+}
+
+.retailer-more .history-actions {
+  padding-left: 0;
+  margin-top: 8px;
+}
