@@ -500,9 +500,12 @@ is one. The request is the page's own, under the run's marked user agent. If it 
 stops and so does its schedule. A run starts from the top every time, since the list has no address
 to resume at, and stops at the first charge it has read before. An order is opened at
 `/gp/your-account/order-details`, the page SageFin's reader was proved against, not at the address
-the answer gives (the printable summary for a retail order, another page for a digital one), and a
-digital order (D01-…) is not opened at all: its charges reach SageFin in the list, and its own page
-is not one the app knows.
+the answer gives (the printable summary for a retail order, another page for a digital one). A
+digital order (D01-…: a Kindle book, a Prime Video rental, an app, a subscription or a membership)
+is opened there too: Amazon draws it as the same order-details page, with its date, what was bought,
+its total and how it was paid, which for a subscription bought in an iPhone app is "Billed through
+Apple App Store". It counts towards the same twenty pages a run, and is stripped and sent like any
+other order's page.
 
 ## Layout
 

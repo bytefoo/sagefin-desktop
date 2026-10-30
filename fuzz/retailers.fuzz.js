@@ -170,7 +170,8 @@ const HOSTS = {
   amazon: ["www.amazon.com", "amazon.com"],
 };
 const ORDER_PAGE = { walmart: "order_detail_next_data", amazon: "order_detail_html" };
-const ORDER_NUMBER = { walmart: /^\d{6,30}$/, amazon: /^\d{3}-\d{7}-\d{7}$/ };
+// Amazon's retail orders and its digital ones (D01-…), which a run opens too.
+const ORDER_NUMBER = { walmart: /^\d{6,30}$/, amazon: /^(?:\d{3}|D\d{2})-\d{7}-\d{7}$/ };
 // The whole address, not only where it points: what follows the order number is the list's too.
 const ORDER_URL = {
   // Online: the long hex group id, or none. In-store: any digits-or-hex group id, or none, then
