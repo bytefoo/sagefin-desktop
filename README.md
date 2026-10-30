@@ -81,6 +81,9 @@ are the site's own, and a web deploy changes the app's interface too.
   tells the web app it is running in the desktop app and what the app can do; `retailers()` lists
   each retailer with how many pages are saved here; `openRetailer(code)` opens one; `onRetailersChanged`
   says when to ask again. Names, counts and times only — a saved page's contents never cross it.
+  Each retailer also says how its last sync ended (`lastOutcome`), whether its history needs setting
+  up again (`history.outdated`) and how far back setup is going (`history.goal`), so the page can say
+  where it stands in one line; `openRetailer` opens the setup instead while one is under way.
   `setUpHistory(code)` opens a retailer's history for the member to set up
   ([below](#setting-up-your-history)), and `setBankHistory({ start, locked })` is the page handing over
   where the household's bank history starts, which it read with the member's own sign-in, for the
@@ -97,10 +100,13 @@ are the site's own, and a web deploy changes the app's interface too.
 A development run can open another site: `SAGEFIN_DESKTOP_SITE=test npm start`, or the Develop
 menu. A packaged app opens production. Each site has its own browser profile.
 
-The retailers window (Retailers → Retailers on This Computer) is the app's own page: what is saved here,
-a button to open each retailer, and each retailer's history: whether it is set up, how far back, how
-many orders are still to read, how many are set aside, how many wait to be listed again (below), and
-the ways to set it up again.
+The retailers window (Retailers → Retailers on This Computer) is the app's own page. Each retailer's
+row says where it stands in one line ("Up to date · last synced 1 min ago", "Catching up: 12 orders
+still to read", "Setting up in its window: reached Aug 12, 2026 of Jun 30, 2026"), with Open and at
+most one other button, only when something needs doing: Set up history, Carry on setting up, or Set
+up history again (`lib/card.mjs`). Its **Details** hold the rest: what is saved here, the last
+sync's result, the history (how far back, how many orders are still to read, how many are set aside,
+how many wait to be listed again, below), and the ways to set it up again.
 
 ## Running in the background
 
@@ -154,8 +160,14 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   older than that has nothing to match. Once the history reaches it, the strip says that covers all
   of it. The date is what the signed-in SageFin page handed over; when the household is locked in
   private mode and none was handed over, the strip says it cannot show it rather than guess.
-  **Done** ends setup and closes the window. Closing the window instead keeps what was seen and how
-  far it got, and setting up again carries on from there.
+  **Done** ends setup and closes the window. Closing the window once the strip says the history is
+  back far enough is Done too. Closing it before keeps what was seen and how far it got, and setting
+  up again carries on from there.
+- **Setup always opens on the history page.** Set up history, from either window, opens the
+  retailer's window on Your Payments or Purchase history with the strip, whatever the window showed
+  before; one already setting up is brought forward where the member got to, not reloaded from the
+  top. While a setup is under way (from Set up history until Done), **Open** does the same, rather
+  than opening Your Orders, which lists nothing setup needs.
 - **A robot check during setup is the member's.** It is their browsing, so the strip says to answer
   it in the window and carry on. A run never does (below).
 - **Each order goes on a to-do list.** The charges and totals in the list reach SageFin at once,
@@ -174,10 +186,18 @@ prohibit software gathering its pages, and the less of the history a run reads, 
   before, so an order an older version left out of the list (at Amazon, every digital order before
   v0.1.88) sits below charges already read, where no sync reaches. Its charges reached SageFin; its
   page never went on the to-do list. Such a setup is outdated (`listingVersion` in
-  `lib/retailers.mjs`): each sync's result says to set the history up again, back as far as before,
-  and that setup starts its count from nothing, so the strip says the bank history is covered only
-  once the member's scrolling reaches it again. It skips what was read, and puts on the to-do list
-  what the older version left out. Start over is not needed, and costs no more: before opening
+  `lib/retailers.mjs`): the row says the history needs setting up again, with **Set up history
+  again** as its one button, which opens setup straight away. That setup starts its count from
+  nothing and keeps how far back the history went before as its goal, so the strip says "reached
+  August 12, 2026 of June 30, 2026" and "Go back to June 30, 2026, as far as your history went
+  before", and calls it far enough only there. It skips what was read, and puts on the to-do list
+  what the older version left out.
+- **A sync does not catch up by itself, and cannot.** Each run starts at the top of the list (it
+  has no address for further down), so reaching a date months back would be one run scrolling all
+  the way there, which is what met Amazon's robot check; starting further down by sending the list's
+  own cursor would be a request of the app's own, which it never makes. At Walmart the same holds,
+  and its terms prohibit software gathering its pages. So catching up is the member's own scrolling,
+  once, with the strip counting down to the goal. Start over is not needed, and costs no more: before opening
   anything a sync asks SageFin about as much of the to-do list as one question carries, so orders
   this computer read before Start over are skipped rather than opened again.
 
@@ -538,6 +558,7 @@ other order's page.
 | `lib/uploader.mjs` | Sends saved pages oldest first and acts on the server's status |
 | `lib/sync-plan.mjs` | When a scheduled run is due, and what is remembered between runs |
 | `lib/history.mjs` | Setting up the history, the to-do list of orders, when a run is caught up, the strip's words, and setting it up again |
+| `lib/card.mjs` | A retailer's row in the retailers window: one line, and the one action it needs |
 | `renderer/strip.html`, `main/strip-preload.cjs` | The strip above a retailer's page during setup: the app's own page, in its own view, with Done |
 | `lib/background.mjs` | What closing the window does, and starting with the computer |
 | `lib/check-in.mjs` | The five-minute check-in with SageFin: what is sent, and what the answer permits |
