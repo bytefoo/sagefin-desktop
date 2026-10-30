@@ -124,6 +124,10 @@ On Windows and Linux the main window's menu bar is always shown, at the top of t
 Retailers menu is somewhere a member can see; everything in it is also on the tray icon. macOS
 keeps its menu at the top of the screen. Pop-ups, the unlock window and a retailer's window still
 hide theirs until Alt is pressed.
+- **The main window has Back and Forward.** View menu: Cmd+[ and Cmd+] on macOS, Alt+Left and
+  Alt+Right elsewhere; the trackpad swipe on macOS (when System Settings allows swiping between
+  pages); the mouse back and forward buttons on Windows. Each is greyed out when there is nowhere
+  to go. They act on the SageFin window only, never a retailer's. `lib/history-nav.mjs` decides.
 - **Starting with the computer is off by default**, and offered only in a packaged app on macOS
   and Windows (a development run would register Electron itself). Not exercised yet: nothing is
   packaged build has been run with it. On macOS 13 and later the system does not say that a start was a login start,
