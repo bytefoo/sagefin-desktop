@@ -400,10 +400,14 @@ Walmart and Amazon are the retailers the app supports today.
     (`__NEXT_DATA__`) once the page has loaded, and the answers to the two orders requests the
     page itself makes as the member scrolls or clicks into an order. Those are read from outside
     the page, through the DevTools protocol.
-  - *Amazon:* Your Orders, an order's details and Your Payments. It saves the page's HTML as
-    Amazon sent it, with scripts, styles and images removed, and the answers to the one request
-    Your Payments itself makes as it is scrolled (`get-transactions`), as Amazon sent them. Those
-    are read from outside the page, through the DevTools protocol, as Walmart's are.
+  - *Amazon:* an order's details and Your Payments. It saves the page's HTML as Amazon sent it,
+    with scripts, styles and images removed, and the answers to the one request Your Payments
+    itself makes as it is scrolled (`get-transactions`), as Amazon sent them. Those are read from
+    outside the page, through the DevTools protocol, as Walmart's are. **Your Orders is visited,
+    never saved or sent.** The window opens on it and the member may look through it, but Amazon
+    sends each order card on it encrypted, for its own scripts to decrypt in the browser, so the
+    page as sent holds no order SageFin can read. The orders SageFin reads come from their details
+    pages; a sync finds them on Your Payments (below).
 - **Nothing on a retailer's page is wrapped, injected or changed.**
 - **Outside a sync it makes no request of its own to a retailer.** It saves what the member's own
   browsing loads.
