@@ -736,7 +736,7 @@ export function startPrivateMode({ site, window, showWindow, dir, changed = () =
             forgetHolding();
             stopped(REFUSED[done.code ?? ""] ?? REFUSED.unknown_holder);
           } else {
-            const said = done.code === "household_file_locked" ? "Unlock SageFin in this window first (Unlock SageFin… in the menu), then add the device." : done.code && REFUSED[done.code];
+            const said = done.code === "household_file_locked" ? "Unlock SageFin in this window first (Unlock SageFin… in the Household menu), then add the device." : done.code && REFUSED[done.code];
             show({ ...view, said: said || "That didn't work, and nothing was added. Try again." });
           }
         };
