@@ -47,9 +47,12 @@ function openInBrowser(url) {
  *   The member's background choices, for the Retailers menu. Asked for each time the menu is built.
  * @param {() => Electron.MenuItemConstructorOptions[]} options.updateMenuItems
  *   What there is to say about updates, for the Retailers menu. Asked for each time the menu is built.
+ * @param {() => Electron.MenuItemConstructorOptions[]} options.householdMenuItems
+ *   Private mode's items (Unlock SageFin…, Add a Device…, Make This Household Private…), for the
+ *   Household menu, which is left out when there are none. Asked for each time the menu is built.
  * @returns {{ window: BrowserWindow, switchSite: (site: import("../lib/site.mjs").Site) => void, changed: () => void, show: () => void, refreshMenu: () => void }}
  */
-export function openShell({ site: initialSite, version, onRetailers, retailers, account, privateMode, onSite, icon, background, updateMenuItems }) {
+export function openShell({ site: initialSite, version, onRetailers, retailers, account, privateMode, onSite, icon, background, updateMenuItems, householdMenuItems }) {
   let site = initialSite;
 
   /** @param {import("../lib/site.mjs").Site} s */
@@ -133,7 +136,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
       icon,
       show,
       // Windows and Linux draw the menu as a strip inside the window, in the system's colours. It
-      // stays there rather than hiding until Alt, so the Retailers menu is somewhere a member can
+      // stays there rather than hiding until Alt, so its menus are somewhere a member can
       // see. macOS keeps its menu at the top of the screen and ignores this. Pop-ups, the unlock
       // window and a retailer's window still hide theirs.
       autoHideMenuBar: false,
@@ -264,6 +267,10 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
 
   function menu() {
     const update = updateMenuItems();
+    // Private mode is about the household, not about retailers, so it has a menu of its own, after
+    // View, where an app's own menus go on macOS and Windows alike. Left out where this computer
+    // has nothing to offer for it, which is where it cannot hold a key.
+    const household = householdMenuItems();
     /** @type {Electron.MenuItemConstructorOptions[]} */
     const template = [
       ...(process.platform === "darwin" ? [/** @type {Electron.MenuItemConstructorOptions} */ ({ role: "appMenu" })] : []),
@@ -274,6 +281,7 @@ export function openShell({ site: initialSite, version, onRetailers, retailers, 
         label: "View",
         submenu: [historyItem("back"), historyItem("forward"), { type: "separator" }, { role: "reload" }, { role: "togglefullscreen" }, { type: "separator" }, { role: "resetZoom" }, { role: "zoomIn" }, { role: "zoomOut" }],
       },
+      ...(household.length ? [/** @type {Electron.MenuItemConstructorOptions} */ ({ label: "Household", submenu: household })] : []),
       {
         label: "Retailers",
         submenu: [

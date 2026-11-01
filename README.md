@@ -127,7 +127,8 @@ leaves the app running (`lib/background.mjs`). The rules:
   matches no release. The window's title names the site whenever it is not production.
 
 On Windows and Linux the main window's menu bar is always shown, at the top of the window, so its
-Retailers menu is somewhere a member can see; everything in it is also on the tray icon. macOS
+Household and Retailers menus are somewhere a member can see; everything in them is also on the
+tray icon. macOS
 keeps its menu at the top of the screen. Pop-ups, the unlock window and a retailer's window still
 hide theirs until Alt is pressed.
 - **The main window has Back and Forward.** View menu: Cmd+[ and Cmd+] on macOS, Alt+Left and
@@ -584,9 +585,13 @@ other order's page.
 
 ## Private mode on this computer
 
-**Not released yet:** this is on its way to a release, and until it is in one, nothing below
-happens on any computer: a private household's window is unlocked by the member's phone, the way a
-browser's is. The macOS key helper is built and signed with the app by the release workflow
+**Released in 0.1.86 and every release since.** On a Mac or Windows computer running one of
+those, this app can hold a private household's key, unlock its own window, add a device, and, for
+a member with no phone, make the household private. Its items are in the **Household** menu and on
+the tray icon, and only on a computer that can hold a key. An older release, or a computer that
+cannot hold one, has its window unlocked by the member's phone, the way a browser's is.
+
+The macOS key helper is built and signed with the app by the release workflow
 (`native/macos/build.sh`): a small bundle in the app's `Contents/Helpers`, `SageFinKeys.app`, with
 its own copy of the app's Developer ID provisioning profile, because macOS honours the keychain
 entitlement it needs only with one. A build without the signing secrets (a fork, a pull request)
@@ -628,7 +633,7 @@ without reaching for the phone. What it holds itself to, in this source:
   twice within ten seconds (`whyIgnorePageAsk`), so a page cannot keep a prompt in front of you.
   A page can therefore put the prompt in front of you once after you pressed something on it;
   it can never answer it. Unlocking also starts from the app's own unlock window (a page from the
-  app's own files, `renderer/unlock.html`), which the menu's **Unlock SageFin…** opens.
+  app's own files, `renderer/unlock.html`), which **Unlock SageFin…** in the Household menu opens.
 - **The unlock window opens by itself only where the page offers no way in.** When the window
   comes up locked on a computer that holds the household's key, the app waits up to eight seconds
   (`unlockWindowOnShow`). SageFin's locked page asks whether this computer holds a key as it
@@ -648,14 +653,14 @@ without reaching for the phone. What it holds itself to, in this source:
   per locked period and never two within six hours, and it counts these itself, so SageFin cannot
   make it ask more often. Clicking it opens the unlock window for a Sync and lock, and Touch ID
   or Windows Hello approves that. Nothing unlocks while you are away.
-- **Adding this computer is your phone's to approve.** From the menu, Use This Computer to Unlock
+- **Adding this computer is your phone's to approve.** From the Household menu, Use This Computer to Unlock
   SageFin, or Add this computer on SageFin's locked page, which asks the app to open the same
   thing: the app makes its two keys and shows a QR code for your phone to scan (Settings →
   Security → Devices → Add a device), with the same code beside it to type if the camera cannot
   read it, then twelve characters that both screens show. Add it only
   if they match. Your phone signs what the computer is and where its keys are, and SageFin keeps
   that. Removing the computer on your phone stops it unlocking.
-- **With no phone, this computer can be the first.** From the menu, **Make This Household
+- **With no phone, this computer can be the first.** From the Household menu, **Make This Household
   Private…** (or SageFin's Settings page, which asks the app to open the same window): the app
   checks SageFin says the household may go private, makes two new keys in the security chip and
   four recovery codes, and shows the codes once. You write them down and type one back; they are

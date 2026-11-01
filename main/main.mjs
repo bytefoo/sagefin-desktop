@@ -290,6 +290,7 @@ async function start() {
       menuItems: backgroundMenuItems,
     },
     updateMenuItems,
+    householdMenuItems,
     onRetailers: () => void openRetailersWindow(),
     retailers: {
       status,
@@ -451,9 +452,17 @@ function backgroundMenuItems() {
       click: (item) => setPreference({ openAtLogin: item.checked }),
     });
   }
-  // Unlocking with this computer, or adding it: only where it can hold a key.
-  const unlocking = privateMode?.menuItems() ?? [];
-  return unlocking.length ? [...items, { type: "separator" }, ...unlocking] : items;
+  return items;
+}
+
+/**
+ * Private mode's items: unlocking with this computer, adding it or another device, making the
+ * household private here. Only where this computer can hold a key, and empty otherwise. One list
+ * for the Household menu and the tray, so the two cannot offer different things.
+ * @returns {Electron.MenuItemConstructorOptions[]}
+ */
+function householdMenuItems() {
+  return privateMode?.menuItems() ?? [];
 }
 
 /** @param {Partial<import("../lib/background.mjs").Preferences>} changes */
@@ -497,6 +506,7 @@ function refreshMenus() {
 
 function trayMenu() {
   const update = updateMenuItems();
+  const household = householdMenuItems();
   return Menu.buildFromTemplate([
     // Which version is running: the one place to read it when the window is closed.
     { label: versionLabel(RUNNING_VERSION), enabled: false },
@@ -506,6 +516,7 @@ function trayMenu() {
     ...(update.length ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([{ type: "separator" }, ...update]) : []),
     { type: "separator" },
     ...backgroundMenuItems(),
+    ...(household.length ? /** @type {Electron.MenuItemConstructorOptions[]} */ ([{ type: "separator" }, ...household]) : []),
     { type: "separator" },
     { label: "Quit SageFin Desktop", click: () => app.quit() },
   ]);
