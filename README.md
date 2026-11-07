@@ -424,6 +424,8 @@ Walmart and Amazon are the retailers the app supports today.
     computer may start each retailer's scheduled sync: a member with the app on several computers
     gets one daily sync per retailer instead of one per computer, and a retailer that turns one
     computer away is not asked again by the others. Sync now, pressed here, is never asked about.
+    A check-in refused with 401 or 403 is not "no answer": the credential is no longer good, so the
+    app lets it go and checks in no more until it is connected again (see [Sending](#sending)).
     With no answer (offline, or a SageFin that does not know the question) the app syncs as it
     would with nobody to ask, and a "no" is only believed for fifteen minutes. The answer also carries when
     the member wants each retailer to sync by itself; a choice, unlike a "no", is remembered until
@@ -503,10 +505,20 @@ at all. Once SageFin holds it, the copy here is removed.
 - **Connecting is automatic.** The member is signed in to SageFin inside the app; Settings →
   Retail sync connects the app when it finds it unconnected, once per page load. Disconnecting
   there lets go of the token here and revokes it at SageFin.
+- **A connection SageFin stops accepting is let go, and the member is told.** A credential lasts
+  until it is revoked, and SageFin also revokes it when the sign-in that connected it ends. When a
+  check-in or an upload is refused with 401 or 403, the app drops the token, stops checking in,
+  shows one notification, and says beside the retailers that it is not connected. Pages saved
+  meanwhile wait here, as they do before a computer is first connected. It keeps which credential
+  was refused (its id and when, never the secret) and tells the page as `lostConnection`; the
+  signed-in page may then ask SageFin to connect this computer again by itself, which SageFin
+  allows only when the sign-in that connected it has since ended, and otherwise offers
+  **Connect this computer**. Connecting again, or disconnecting, forgets it.
 - **Sending is automatic too**: after each page saved, on connecting, and at start for anything
   left from last time. One run at a time, oldest first.
 - **What the server's answer means** (`lib/uploader.mjs`): 200 and 202 both mean SageFin holds the
-  page, so it is removed here; 401 or 403 drops the token and asks the member to connect again; a
+  page, so it is removed here; 401 or 403 drops the token and asks the member to connect again, as
+  the same answer to a check-in does; a
   busy or failing server and no connection end the run and keep everything; any other refusal is
   about that one page, which stays while the rest go.
 - **A page is filed under the SageFin the app was showing** when it was saved, and under the
