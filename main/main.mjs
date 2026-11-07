@@ -729,6 +729,13 @@ async function checkInOnce() {
     fetch,
   });
   checkInEveryMs = result.againInMs;
+  // SageFin no longer accepts this credential: it was revoked, or the sign-in that made it ended.
+  // Keeping it would ask again every five minutes for as long as the app runs, and be refused each
+  // time, while nothing told the member. It goes, and the check-ins with it, until one replaces it.
+  if (result.status === "signed-out") {
+    connectionLost(asked.key, credential.tokenId);
+    return;
+  }
   if (result.status !== "answered") return;
   // A private household's lock, and whether its bank has new activity: a reason to ask, counted here.
   if (asked.key === site.key) privateMode?.onCheckIn(result.privateMode ?? null);
@@ -756,6 +763,44 @@ async function checkInOnce() {
     }
   }
   changed();
+}
+
+/** What the page says, beside the retailers, while this computer is not connected because of it. */
+const CONNECTION_LOST_NOTICE =
+  "SageFin stopped accepting this computer's connection, so saved pages are kept here and not sent. Sign in to SageFin here and it connects again; if it does not, press Connect this computer.";
+
+/**
+ * SageFin refused the credential a check-in or an upload carried: it was revoked, or the sign-in
+ * that connected it has ended. The credential goes, and which one it was is kept for the signed-in
+ * page, which may ask SageFin for its successor. The member is told once, here, since nothing else
+ * will tell them, and pages saved meanwhile wait on this computer as they do before connecting.
+ * Nothing happens when the credential held now is not the one refused: a connect overtook it.
+ * @param {string} siteKey
+ * @param {string} tokenId  The credential the refused request carried.
+ */
+function connectionLost(siteKey, tokenId) {
+  const lost = credentials?.drop(siteKey, tokenId, new Date().toISOString());
+  if (!lost) return;
+  if (siteKey === site.key) {
+    uploadNotice = CONNECTION_LOST_NOTICE;
+    tellConnectionLost();
+  }
+  changed();
+}
+
+/** One notification, which opens the page where the computer is connected. */
+function tellConnectionLost() {
+  if (!Notification.isSupported()) return;
+  const notice = new Notification({
+    title: "SageFin Desktop is not connected",
+    body: "SageFin stopped accepting this computer's connection, so your orders are not being sent. Click here to connect it again.",
+  });
+  notice.on("click", () => {
+    if (!main) return;
+    main.show();
+    void main.window.loadURL(new URL("/settings/retail-sync", site.origin).href).catch(() => {});
+  });
+  notice.show();
 }
 
 /** Checks in, then again after however long SageFin asked for. */
@@ -1344,8 +1389,7 @@ async function upload() {
     }
     if (summary.stopped === "signed-out") {
       // The token was revoked or has gone. Keeping it would retry it against every saved page.
-      credentials.clear(sendingTo.key);
-      uploadNotice = "SageFin no longer accepts this computer's connection. Connect it again.";
+      connectionLost(sendingTo.key, credential.tokenId);
     } else if (summary.stopped === "offline") {
       uploadNotice = "SageFin could not be reached. Saved pages will be sent when it can be.";
     } else if (summary.stopped === "busy" || summary.stopped === "server") {
@@ -1405,14 +1449,21 @@ function status() {
   // Nor one saved for another household: it is not waiting to be sent to this one.
   const owner = household();
   const records = (store ? store.list() : []).filter((c) => c.site === site.origin && c.owner === owner);
+  const held = credentials?.get(site.key) ?? null;
+  // The credential SageFin last stopped accepting here, while none has replaced it: its id and
+  // when, never its secret. The signed-in page asks SageFin whether it may connect this computer
+  // again by itself (only where the sign-in that connected it has since ended), and otherwise
+  // offers Connect this computer. Kept on disk, so it is still said after the app restarts.
+  const lostConnection = held ? null : (credentials?.lost(site.key) ?? null);
   return {
     canSave: Boolean(store),
-    connected: Boolean(credentials?.get(site.key)),
+    connected: Boolean(held),
     // Which of the member's connected computers this one is. The credential's id, never its secret:
     // SageFin lists the id in Settings, and the page needs it to mark this computer in that list.
-    tokenId: credentials?.get(site.key)?.tokenId ?? null,
+    tokenId: held?.tokenId ?? null,
+    lostConnection,
     sending: uploading,
-    uploadNotice: uploadNotice ?? letGoNotice,
+    uploadNotice: uploadNotice ?? (lostConnection ? CONNECTION_LOST_NOTICE : null) ?? letGoNotice,
     retailers: RETAILERS.map((r) => {
       const mine = records.filter((c) => c.retailer === r.code);
       const sync = syncStatus(r.code);
